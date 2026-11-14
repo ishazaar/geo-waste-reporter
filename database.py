@@ -6,10 +6,24 @@ Handles persistence for reports, audit logs, and upvotes with full transactional
 import sqlite3
 import json
 import os
+import shutil
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geo_waste.db")
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if os.environ.get("VERCEL"):
+    DB_DIR = tempfile.gettempdir()
+    DB_PATH = os.path.join(DB_DIR, "geo_waste.db")
+    bundled_db = os.path.join(ROOT_DIR, "geo_waste.db")
+    if not os.path.exists(DB_PATH) and os.path.exists(bundled_db):
+        try:
+            shutil.copy2(bundled_db, DB_PATH)
+        except Exception as _copy_err:
+            print(f"Notice copying bundled DB to temp dir: {_copy_err}")
+else:
+    DB_PATH = os.path.join(ROOT_DIR, "geo_waste.db")
 
 
 def get_connection():

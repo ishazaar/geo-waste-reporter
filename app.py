@@ -25,13 +25,23 @@ from geo_analytics import (
 from ai_classifier import classify_waste_image
 from seed_data import seed_database
 
+import tempfile
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
+if os.environ.get("VERCEL"):
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "geo_waste_uploads")
+else:
+    UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB max upload
+
+
+@app.route("/static/uploads/<path:filename>")
+def serve_uploads(filename):
+    return send_from_directory(UPLOAD_DIR, filename)
 
 
 @app.after_request
