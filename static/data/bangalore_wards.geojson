@@ -1,0 +1,215 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-112",
+        "ward_name": "Domlur & Indiranagar",
+        "zone": "East Zone",
+        "population": 78500,
+        "area_sqkm": 4.8,
+        "color": "#3b82f6"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.632, 12.962],
+          [77.658, 12.964],
+          [77.661, 12.986],
+          [77.636, 12.984],
+          [77.632, 12.962]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-151",
+        "ward_name": "Koramangala",
+        "zone": "South Zone",
+        "population": 84200,
+        "area_sqkm": 5.4,
+        "color": "#8b5cf6"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.608, 12.920],
+          [77.642, 12.922],
+          [77.644, 12.946],
+          [77.611, 12.944],
+          [77.608, 12.920]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-150",
+        "ward_name": "Bellandur (Catchment)",
+        "zone": "Mahadevapura Zone",
+        "population": 115000,
+        "area_sqkm": 8.6,
+        "color": "#ec4899"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.652, 12.915],
+          [77.698, 12.918],
+          [77.702, 12.952],
+          [77.655, 12.949],
+          [77.652, 12.915]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-85",
+        "ward_name": "Whitefield & Kadugodi",
+        "zone": "Mahadevapura Zone",
+        "population": 128000,
+        "area_sqkm": 11.2,
+        "color": "#f59e0b"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.725, 12.958],
+          [77.768, 12.960],
+          [77.772, 12.994],
+          [77.728, 12.991],
+          [77.725, 12.958]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-174",
+        "ward_name": "HSR Layout",
+        "zone": "Bommanahalli Zone",
+        "population": 92000,
+        "area_sqkm": 6.1,
+        "color": "#10b981"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.625, 12.902],
+          [77.662, 12.904],
+          [77.665, 12.928],
+          [77.628, 12.926],
+          [77.625, 12.902]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-45",
+        "ward_name": "Malleshwaram",
+        "zone": "West Zone",
+        "population": 72000,
+        "area_sqkm": 3.9,
+        "color": "#06b6d4"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.558, 12.994],
+          [77.585, 12.996],
+          [77.588, 13.022],
+          [77.561, 13.020],
+          [77.558, 12.994]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-84",
+        "ward_name": "Peenya Industrial Area",
+        "zone": "Rajarajeshwari Nagar Zone",
+        "population": 96000,
+        "area_sqkm": 8.2,
+        "color": "#ef4444"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.502, 13.014],
+          [77.545, 13.016],
+          [77.548, 13.048],
+          [77.505, 13.045],
+          [77.502, 13.014]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-93",
+        "ward_name": "Shivajinagar & Commercial St",
+        "zone": "East Zone",
+        "population": 88000,
+        "area_sqkm": 3.4,
+        "color": "#f97316"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.592, 12.974],
+          [77.618, 12.976],
+          [77.620, 12.996],
+          [77.595, 12.994],
+          [77.592, 12.974]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-168",
+        "ward_name": "Jayanagar",
+        "zone": "South Zone",
+        "population": 76000,
+        "area_sqkm": 4.5,
+        "color": "#14b8a6"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.572, 12.914],
+          [77.602, 12.916],
+          [77.605, 12.942],
+          [77.575, 12.940],
+          [77.572, 12.914]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "ward_id": "WARD-20",
+        "ward_name": "Hebbal & Kempapura",
+        "zone": "Yelahanka Zone",
+        "population": 81000,
+        "area_sqkm": 5.9,
+        "color": "#6366f1"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [77.578, 13.028],
+          [77.612, 13.030],
+          [77.615, 13.062],
+          [77.581, 13.060],
+          [77.578, 13.028]
+        ]]
+      }
+    }
+  ]
+}
