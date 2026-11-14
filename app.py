@@ -54,6 +54,7 @@ def add_cors_headers(response):
 
 # --- Static Frontend Serving ---
 @app.route("/")
+@app.route("/index.html")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
