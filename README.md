@@ -85,6 +85,38 @@ Illegal municipal solid waste and demolition debris dumping ("black spots") pose
 
 ---
 
+## 🌐 Cloud Deployment Guide (Stage 2 Phase 1)
+
+This project is pre-configured with `Procfile`, `render.yaml`, and `Dockerfile` for seamless 1-click cloud deployment.
+
+### Option A: Deploy on Render (Recommended - Free & Fast)
+1. Fork or push this repository to your GitHub account (`https://github.com/<your-username>/geo-waste-reporter`).
+2. Log in to [Render](https://render.com) and click **New +** &rarr; **Web Service**.
+3. Select your `geo-waste-reporter` repository.
+4. Render will automatically detect the settings:
+   - **Runtime:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `gunicorn app:app`
+5. Click **Create Web Service**. Your live public application will be available at:
+   `https://<your-service-name>.onrender.com`
+
+### Option B: Deploy on Railway
+1. Go to [Railway](https://railway.app) and click **New Project** &rarr; **Deploy from GitHub repo**.
+2. Select `geo-waste-reporter`. Railway detects the `Dockerfile` or `Procfile` and deploys automatically.
+3. In **Settings** &rarr; **Networking**, click **Generate Domain** to get a public HTTPS link.
+
+### Option C: Instant Local Tunnel (For Immediate Evaluation)
+If running locally and you need an instant public URL:
+```bash
+# Terminal 1: Start application
+python app.py
+
+# Terminal 2: Expose via localtunnel or cloudflared
+npx localtunnel --port 5000
+```
+
+---
+
 ## ⚡ Quickstart Guide
 
 ### 1. Requirements
