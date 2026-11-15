@@ -535,8 +535,8 @@ function setupReportForm() {
     const description = document.getElementById('report-desc')?.value || '';
     const category = document.getElementById('report-category')?.value;
     const severity = document.getElementById('report-severity')?.value;
-    const wardName = document.getElementById('report-ward')?.value || 'Domlur & Indiranagar';
-    const address = document.getElementById('report-address')?.value || `${wardName}, Bengaluru`;
+    const wardName = '';  // ward is derived server-side from the coordinates
+    const address = document.getElementById('report-address')?.value || '';
 
     const formData = new FormData();
     formData.append('title', title);

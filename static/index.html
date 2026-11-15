@@ -19,7 +19,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="/static/css/style.css?v=5">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
   <style id="map-layout-fix">
     /* Deterministic Live Map layout (does not depend on Tailwind's runtime) */
     #map-view { height: calc(100vh - 122px); min-height: 560px; }
@@ -357,25 +357,9 @@
             <h3 class="text-sm font-extrabold text-slate-900 mb-4">3. Dump Details &amp; Severity Assessment</h3>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div>
+              <div class="md:col-span-2">
                 <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Incident Title</label>
                 <input type="text" id="report-title" placeholder="e.g. Garbage Mound on 100ft Road" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-semibold" required />
-              </div>
-
-              <div>
-                <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Ward (Auto-Matched by Coordinates)</label>
-                <select id="report-ward" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-semibold">
-                  <option value="Domlur & Indiranagar">Ward 112: Domlur &amp; Indiranagar</option>
-                  <option value="Koramangala">Ward 151: Koramangala</option>
-                  <option value="Bellandur (Catchment)">Ward 150: Bellandur (Lake Catchment)</option>
-                  <option value="Whitefield & Kadugodi">Ward 85: Whitefield &amp; Kadugodi</option>
-                  <option value="HSR Layout">Ward 174: HSR Layout</option>
-                  <option value="Malleshwaram">Ward 45: Malleshwaram</option>
-                  <option value="Peenya Industrial Area">Ward 84: Peenya Industrial Area</option>
-                  <option value="Shivajinagar & Commercial St">Ward 93: Shivajinagar</option>
-                  <option value="Jayanagar">Ward 168: Jayanagar</option>
-                  <option value="Hebbal & Kempapura">Ward 20: Hebbal &amp; Kempapura</option>
-                </select>
               </div>
 
               <div>
@@ -728,12 +712,12 @@
   </div>
 
   <!-- Scripts -->
-  <script src="/static/js/app.js?v=5"></script>
-  <script src="/static/js/map.js?v=5"></script>
-  <script src="/static/js/reporting.js?v=5"></script>
-  <script src="/static/js/admin.js?v=5"></script>
-  <script src="/static/js/analytics.js?v=5"></script>
-  <script src="/static/js/route_optimizer.js?v=5"></script>
-  <script src="/static/js/presentation.js?v=5"></script>
+  <script src="/static/js/app.js?v=6"></script>
+  <script src="/static/js/map.js?v=6"></script>
+  <script src="/static/js/reporting.js?v=6"></script>
+  <script src="/static/js/admin.js?v=6"></script>
+  <script src="/static/js/analytics.js?v=6"></script>
+  <script src="/static/js/route_optimizer.js?v=6"></script>
+  <script src="/static/js/presentation.js?v=6"></script>
 </body>
 </html>
