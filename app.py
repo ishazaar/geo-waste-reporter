@@ -200,7 +200,8 @@ def apply_live_priority(report):
     if report.get("status") != "Cleared":
         calc = calculate_priority_score(
             severity=report.get("severity", 3), lat=report["latitude"], lon=report["longitude"],
-            upvotes=report.get("upvotes", 0) or 0, days_open=_age_days(report.get("reported_at"))
+            upvotes=report.get("upvotes", 0) or 0, days_open=_age_days(report.get("reported_at")),
+            category=report.get("category")
         )
         report["priority_score"] = calc["score"]
         report["priority_level"] = calc["level"]
@@ -366,7 +367,7 @@ def submit_report():
     if not category or category == "Auto-Detect (AI)":
         category = "Mixed Municipal Solid Waste"
 
-    priority_res = calculate_priority_score(severity=severity, lat=lat, lon=lon, upvotes=0, days_open=0.0)
+    priority_res = calculate_priority_score(severity=severity, lat=lat, lon=lon, upvotes=0, days_open=0.0, category=category)
 
     # Ward + landmark address are derived from the coordinates (authoritative), not trusted from the client.
     geo = lookup_ward_and_address(lat, lon, wards_geojson_path=WARDS_GEOJSON)
@@ -394,13 +395,18 @@ def submit_report():
         "estimated_volume": est_vol,
         "closest_receptor_name": receptor["name"] if receptor else None,
         "closest_receptor_dist": receptor["distance_m"] if receptor else None,
-        "notes": f"Initial report logged. Proximity: {priority_res.get('proximity_note', '')}"
+        "notes": f"Initial report logged. Proximity: {priority_res.get('proximity_note', '')}" + (f" | {priority_res['urgency_note']}" if priority_res.get("urgency_note") else "")
     }
 
     created = create_report(report_payload)
     return jsonify({
         "success": True, "message": "Report submitted successfully",
-        "report": created, "ai_analysis": ai_classification
+        "report": created, "ai_analysis": ai_classification,
+        "priority": {
+            "score": priority_res["score"], "level": priority_res["level"],
+            "breakdown": priority_res["breakdown"], "proximity_note": priority_res["proximity_note"],
+            "urgency_note": priority_res.get("urgency_note", "")
+        }
     }), 201
 
 

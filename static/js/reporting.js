@@ -580,7 +580,10 @@ function setupReportForm() {
       }
 
       if (data.success) {
-        showToast('Report logged successfully! Coordinates and AI tags registered.', 'success');
+        const pr = data.priority;
+        showToast(pr
+          ? `Report logged. Priority ${Math.round(pr.score)}/100 (${pr.level}). ${pr.urgency_note || pr.proximity_note}`
+          : 'Report logged successfully! Coordinates and AI tags registered.', 'success');
         form.reset();
         const addrEl = document.getElementById('report-address');
         if (addrEl) delete addrEl.dataset.userEdited;

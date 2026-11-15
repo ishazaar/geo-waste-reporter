@@ -238,3 +238,16 @@ automatically when back online but cannot include photos.
 and uploaded photos are **temporary** there: the 55 demo reports are re-created on each cold start and new reports/photos
 can disappear, or differ between server instances. That is fine for a demo; for real use switch to a hosted database
 (e.g. Neon/Supabase Postgres or Turso) and object storage. Set `ADMIN_TOKEN` in Project Settings -> Environment Variables.
+
+## Sensitive-receptor data (schools, hospitals, lakes)
+
+Priority scoring rewards waste near lakes, hospitals and schools, and adds an *urgency boost* when the kind of
+waste matches the kind of place (e.g. hazardous/medical waste near a school; organic waste beside a lake).
+Hazardous/medical waste within 150 m of a school or hospital is escalated to **Critical**.
+
+The app ships with a small built-in sample (16 places). For full coverage run once, with internet:
+
+    python fetch_receptors.py
+
+This downloads real schools/colleges, hospitals and named lakes for Bengaluru from OpenStreetMap into
+`static/data/receptors.json`, which the app loads automatically at startup (commit the file to deploy it).

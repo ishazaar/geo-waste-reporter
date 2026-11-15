@@ -335,7 +335,8 @@ def upvote_report(report_id: str, user_token: str = "default_user") -> Dict[str,
         # Recompute with the same MCDA formula used everywhere else (includes the upvote cap and report age)
         calc = calculate_priority_score(
             severity=rep["severity"], lat=rep["latitude"], lon=rep["longitude"],
-            upvotes=new_upvotes, days_open=_days_open(rep["reported_at"])
+            upvotes=new_upvotes, days_open=_days_open(rep["reported_at"]),
+            category=rep["category"]
         )
         new_priority, new_level = calc["score"], calc["level"]
 

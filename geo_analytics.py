@@ -8,14 +8,17 @@ Geo-Analytics Engine for Geo-Waste Reporter
 - 2-Opt Traveling Salesperson Problem (TSP) Route Optimization
 """
 
+import json
 import math
+import os
 import numpy as np
 
 # Earth radius in meters
 EARTH_RADIUS_M = 6371000.0
 
-# Critical Environmental & Social Receptors in Bengaluru (Lat, Lon, Name, Type)
-SENSITIVE_RECEPTORS = [
+# Built-in sample of critical environmental & social receptors in Bengaluru (Lat, Lon, Name, Type)
+SENSITIVE_RECEPTORS = []  # filled by _load_receptors() below
+_BUILTIN_RECEPTORS = [
     # Water Bodies (Critical contamination risk)
     {"name": "Bellandur Lake", "type": "water_body", "lat": 12.9360, "lon": 77.6740},
     {"name": "Ulsoor Lake", "type": "water_body", "lat": 12.9832, "lon": 77.6200},
@@ -61,31 +64,110 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return EARTH_RADIUS_M * c
 
 
+# --------------------------------------------------------------------------------------------------
+# Receptor dataset: built-in sample list + optional full OpenStreetMap export (static/data/receptors.json).
+# Generate the full file once with:  python fetch_receptors.py   (needs internet). Without it, the built-in
+# list above is used, so nothing breaks.
+# --------------------------------------------------------------------------------------------------
+RECEPTORS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "data", "receptors.json")
+_VALID_TYPES = ("water_body", "hospital", "school")
+_REC_INDEX = {"list": [], "lat": None, "lon": None, "radius": None}
+
+
+def _load_receptors():
+    """Merges the built-in receptors with receptors.json (if present) and builds numpy arrays for fast search."""
+    merged = [dict(r, radius_m=float(r.get("radius_m", 0))) for r in _BUILTIN_RECEPTORS]
+    extra_count = 0
+    if os.path.exists(RECEPTORS_FILE):
+        try:
+            with open(RECEPTORS_FILE, "r", encoding="utf-8") as fh:
+                extra = json.load(fh)
+            for r in extra:
+                if r.get("type") in _VALID_TYPES and "lat" in r and "lon" in r:
+                    merged.append({
+                        "name": str(r.get("name") or r["type"].replace("_", " ").title())[:120],
+                        "type": r["type"], "lat": float(r["lat"]), "lon": float(r["lon"]),
+                        "radius_m": float(r.get("radius_m", 0) or 0),
+                    })
+                    extra_count += 1
+        except Exception as exc:  # a broken file must never take the app down
+            print(f"[GeoAI] Could not read {RECEPTORS_FILE}: {exc}. Using built-in receptors only.")
+    _REC_INDEX["list"] = merged
+    _REC_INDEX["lat"] = np.radians(np.array([r["lat"] for r in merged], dtype=float))
+    _REC_INDEX["lon"] = np.radians(np.array([r["lon"] for r in merged], dtype=float))
+    _REC_INDEX["radius"] = np.array([r["radius_m"] for r in merged], dtype=float)
+    # Public name kept for backwards compatibility
+    global SENSITIVE_RECEPTORS
+    SENSITIVE_RECEPTORS = merged
+    print(f"[GeoAI] Sensitive receptors loaded: {len(merged)} ({len(_BUILTIN_RECEPTORS)} built-in + {extra_count} from receptors.json)")
+
+
+def _receptor_distances(lat: float, lon: float):
+    """Vectorised haversine distance (metres) from a point to every receptor. Water bodies use the edge, not the centre."""
+    phi1 = math.radians(lat)
+    lam1 = math.radians(lon)
+    dphi = _REC_INDEX["lat"] - phi1
+    dlam = _REC_INDEX["lon"] - lam1
+    a = np.sin(dphi / 2.0) ** 2 + math.cos(phi1) * np.cos(_REC_INDEX["lat"]) * np.sin(dlam / 2.0) ** 2
+    d = 2.0 * EARTH_RADIUS_M * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
+    return np.maximum(0.0, d - _REC_INDEX["radius"])
+
+
 def find_closest_receptor(lat: float, lon: float):
     """Finds the nearest environmental or social sensitive receptor and distance in meters."""
-    closest = None
-    min_dist = float("inf")
-    for r in SENSITIVE_RECEPTORS:
-        d = haversine_distance(lat, lon, r["lat"], r["lon"])
-        if d < min_dist:
-            min_dist = d
-            closest = {**r, "distance_m": round(d, 1)}
-    return closest
+    if not _REC_INDEX["list"]:
+        return None
+    d = _receptor_distances(lat, lon)
+    i = int(np.argmin(d))
+    return {**_REC_INDEX["list"][i], "distance_m": round(float(d[i]), 1)}
 
 
-def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int = 0, days_open: float = 0.0) -> dict:
+def receptors_within(lat: float, lon: float, radius_m: float = 700.0):
+    """All receptors within radius_m, nearest first."""
+    if not _REC_INDEX["list"]:
+        return []
+    d = _receptor_distances(lat, lon)
+    idx = np.where(d <= radius_m)[0]
+    idx = idx[np.argsort(d[idx])]
+    return [{**_REC_INDEX["list"][int(i)], "distance_m": round(float(d[i]), 1)} for i in idx]
+
+
+# Urgency boost (points) when a given kind of waste sits within 350 m of a given kind of receptor.
+# Rationale: hazardous/medical waste endangers children and patients; organic waste and plastics foul water
+# bodies; e-waste leaches toxins into water; construction debris is routinely dumped into lakes.
+URGENCY_BOOST = {
+    "Hazardous / Medical Waste":        {"hospital": 10, "school": 10, "water_body": 8},
+    "Organic / Biodegradable Waste":    {"water_body": 10, "hospital": 5, "school": 5},
+    "Electronic Waste (E-Waste)":       {"water_body": 8, "school": 5, "hospital": 3},
+    "Plastic Waste":                    {"water_body": 8, "school": 3, "hospital": 3},
+    "Construction & Demolition Debris": {"water_body": 8, "school": 5, "hospital": 3},
+    "Mixed Municipal Solid Waste":      {"water_body": 5, "school": 5, "hospital": 5},
+}
+URGENCY_RADIUS_M = 350.0
+
+
+_load_receptors()
+
+
+def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int = 0, days_open: float = 0.0,
+                             category: str = None) -> dict:
     """
     Computes GeoAI Multi-Criteria Decision Analysis (MCDA) Priority Score (0 - 100).
     Components:
     1. Base AI Waste Severity (1 to 5): 10 to 50 pts
-    2. Proximity to Sensitive Receptors (Lakes, Hospitals, Schools): up to 30 pts
-    3. Citizen Upvotes: up to 15 pts (3 pts per upvote)
-    4. Aging Factor (Days Open): up to 10 pts (2 pts per day)
+    2. Proximity to the nearest Sensitive Receptor (Lakes, Hospitals, Schools): up to 30 pts
+    3. Urgency boost: up to 10 pts when this KIND of waste is within 350 m of this KIND of receptor
+       (e.g. hazardous/medical waste near a school or hospital, organic waste next to a lake)
+    4. Vulnerable-area bonus: +5 pts when 2+ receptors lie within 700 m
+    5. Citizen Upvotes: up to 15 pts (3 pts per upvote)
+    6. Aging Factor (Days Open): up to 10 pts (2 pts per day)
+    The total is capped at 100. Hazardous/medical waste within 150 m of a school or hospital is escalated to Critical.
     """
     severity = max(1, min(5, int(severity or 3)))
     base_score = severity * 10  # 10 to 50
 
-    receptor = find_closest_receptor(lat, lon)
+    nearby = receptors_within(lat, lon, 700.0)
+    receptor = nearby[0] if nearby else find_closest_receptor(lat, lon)
     dist = receptor["distance_m"] if receptor else 999999
 
     # Proximity points
@@ -100,13 +182,43 @@ def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int
         proximity_note = f"Within 700m of {receptor['name']} ({receptor['type'].replace('_', ' ')})"
     else:
         proximity_score = 0
-        proximity_note = f"> 700m from sensitive receptors ({round(dist/1000, 1)} km to {receptor['name']})"
+        far = f"{round(dist/1000, 1)} km to {receptor['name']}" if receptor else "none loaded"
+        proximity_note = f"> 700m from sensitive receptors ({far})"
+
+    # Urgency boost: best category-vs-receptor match inside 350 m
+    urgency_score = 0
+    urgency_note = ""
+    matrix = URGENCY_BOOST.get(category or "", {})
+    for r in nearby:
+        if r["distance_m"] > URGENCY_RADIUS_M:
+            break  # list is sorted nearest-first
+        pts = matrix.get(r["type"], 0)
+        if pts > urgency_score:
+            urgency_score = pts
+            urgency_note = f"{category} within {int(r['distance_m'])}m of {r['name']} ({r['type'].replace('_', ' ')}): +{pts} urgency"
+
+    # Several vulnerable places close together
+    density_score = 5 if len(nearby) >= 2 else 0
 
     upvote_score = min(15, upvotes * 3)
     age_score = min(10, int(days_open * 2))
 
-    total = base_score + proximity_score + upvote_score + age_score
+    total = base_score + proximity_score + urgency_score + density_score + upvote_score + age_score
     total = max(5, min(100, total))
+
+    # Public-health escalation: hazardous/medical waste right next to a school or hospital is always Critical
+    escalated = False
+    if category == "Hazardous / Medical Waste":
+        for r in nearby:
+            if r["distance_m"] >= 150:
+                break
+            if r["type"] in ("school", "hospital"):
+                if total < 75:
+                    total = 75
+                    escalated = True
+                urgency_note = (urgency_note + " | " if urgency_note else "") + (
+                    f"ESCALATED to Critical: hazardous waste within {int(r['distance_m'])}m of {r['name']}" if escalated else "")
+                break
 
     if total >= 75:
         level = "Critical"
@@ -128,10 +240,14 @@ def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int
         "breakdown": {
             "base_severity": base_score,
             "proximity_score": proximity_score,
+            "urgency_boost": urgency_score,
+            "vulnerable_area_bonus": density_score,
             "upvote_score": upvote_score,
             "age_score": age_score
         },
         "closest_receptor": receptor,
+        "receptors_within_700m": len(nearby),
+        "urgency_note": urgency_note,
         "proximity_note": proximity_note
     }
 

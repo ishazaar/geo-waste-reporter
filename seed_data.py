@@ -140,7 +140,8 @@ def seed_database():
             lat=cfg["lat"],
             lon=cfg["lon"],
             upvotes=cfg["upvotes"],
-            days_open=days_ago if cfg["status"] != "Cleared" else 0
+            days_open=days_ago if cfg["status"] != "Cleared" else 0,
+            category=cfg["cat"]
         )
 
         img_url = SVG_TEMPLATES.get(cfg["cat"], SVG_TEMPLATES["Mixed Municipal Solid Waste"])
