@@ -19,7 +19,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <!-- Custom CSS -->
-  <link rel="stylesheet" href="/static/css/style.css?v=7">
+  <link rel="stylesheet" href="/static/css/style.css?v=6">
   <style id="map-layout-fix">
     /* Deterministic Live Map layout (does not depend on Tailwind's runtime) */
     #map-view { height: calc(100vh - 122px); min-height: 560px; }
@@ -252,7 +252,7 @@
             </span>
             <h2 class="text-2xl md:text-3xl font-extrabold mt-1.5 tracking-tight">Report Illegal Waste Dumping</h2>
             <p class="text-xs md:text-sm text-emerald-100 mt-1 max-w-2xl">
-              Snap a photo. Our GeoAI vision model classifies the waste, auto-detects real GPS coordinates, verifies duplicates, and dispatches the nearest cleanup crew.
+              Pin the dump on the map. Priority is calculated from its location: dumps near schools, hospitals and lakes are escalated for urgent clean-up.
             </p>
           </div>
         </div>
@@ -265,7 +265,7 @@
             <div class="space-y-6">
               <div>
                 <label class="block text-sm font-extrabold text-slate-900 mb-2">
-                  1. Photo Evidence (AI Classification Engine)
+                  1. Photo Evidence (optional)
                 </label>
                 
                 <!-- Upload Dropzone -->
@@ -277,7 +277,7 @@
                       <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><circle cx="12" cy="13" r="4" stroke-width="2"></circle></svg>
                     </div>
                     <h4 class="font-bold text-sm text-slate-800">Click to Snap Photo or Drag &amp; Drop</h4>
-                    <p class="text-xs text-slate-500 mt-1">Supports JPG, PNG, WEBP. Instant AI analysis upon selection.</p>
+                    <p class="text-xs text-slate-500 mt-1">Supports JPG, PNG, WEBP.</p>
                   </div>
                   
                   <img id="photo-preview-img" alt="Uploaded Preview" class="hidden max-h-56 mx-auto rounded-2xl object-cover shadow-md border border-slate-200" />
@@ -346,6 +346,9 @@
                   <div id="picker-map" class="h-full w-full"></div>
                 </div>
 
+                <!-- Location priority preview (filled by reporting.js) -->
+                <div id="priority-preview" class="mt-3"></div>
+
                 <input type="hidden" id="report-lat" value="12.9716" />
                 <input type="hidden" id="report-lon" value="77.5946" />
               </div>
@@ -363,14 +366,14 @@
               </div>
 
               <div>
-                <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Waste Category (AI Auto-Filled)</label>
+                <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Waste Category</label>
                 <select id="report-category" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 font-semibold">
                   <option value="Plastic Waste">Plastic Waste</option>
                   <option value="Construction & Demolition Debris">Construction &amp; Demolition Debris</option>
                   <option value="Organic / Biodegradable Waste">Organic / Biodegradable Waste</option>
                   <option value="Electronic Waste (E-Waste)">Electronic Waste (E-Waste)</option>
                   <option value="Hazardous / Medical Waste">Hazardous / Medical Waste</option>
-                  <option value="Mixed Municipal Solid Waste">Mixed Municipal Solid Waste</option>
+                  <option value="Mixed Municipal Solid Waste" selected>Mixed Municipal Solid Waste</option>
                 </select>
               </div>
 
@@ -712,12 +715,12 @@
   </div>
 
   <!-- Scripts -->
-  <script src="/static/js/app.js?v=7"></script>
-  <script src="/static/js/map.js?v=7"></script>
-  <script src="/static/js/reporting.js?v=7"></script>
-  <script src="/static/js/admin.js?v=7"></script>
-  <script src="/static/js/analytics.js?v=7"></script>
-  <script src="/static/js/route_optimizer.js?v=7"></script>
-  <script src="/static/js/presentation.js?v=7"></script>
+  <script src="/static/js/app.js?v=6"></script>
+  <script src="/static/js/map.js?v=6"></script>
+  <script src="/static/js/reporting.js?v=6"></script>
+  <script src="/static/js/admin.js?v=6"></script>
+  <script src="/static/js/analytics.js?v=6"></script>
+  <script src="/static/js/route_optimizer.js?v=6"></script>
+  <script src="/static/js/presentation.js?v=6"></script>
 </body>
 </html>

@@ -140,8 +140,7 @@ def seed_database():
             lat=cfg["lat"],
             lon=cfg["lon"],
             upvotes=cfg["upvotes"],
-            days_open=days_ago if cfg["status"] != "Cleared" else 0,
-            category=cfg["cat"]
+            days_open=days_ago if cfg["status"] != "Cleared" else 0
         )
 
         img_url = SVG_TEMPLATES.get(cfg["cat"], SVG_TEMPLATES["Mixed Municipal Solid Waste"])
@@ -180,6 +179,7 @@ def seed_database():
             "estimated_volume": vol_estimate,
             "closest_receptor_name": p_calc["closest_receptor"]["name"] if p_calc.get("closest_receptor") else None,
             "closest_receptor_dist": p_calc["closest_receptor"]["distance_m"] if p_calc.get("closest_receptor") else None,
+            "closest_receptor_type": p_calc["closest_receptor"]["type"] if p_calc.get("closest_receptor") else None,
             "reported_at": rep_iso,
             "cleared_at": cleared_iso,
             "notes": notes

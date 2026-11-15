@@ -37,6 +37,7 @@ from database import (
 from geo_analytics import (
     haversine_distance, calculate_priority_score, check_for_duplicate,
     run_dbscan_clustering, optimize_cleanup_route, SENSITIVE_RECEPTORS,
+    nearby_receptors, receptor_from_report,
     MUNICIPAL_DEPOTS, lookup_ward_and_address
 )
 from ai_classifier import classify_waste_image, sniff_mime, CATEGORIES
@@ -201,7 +202,7 @@ def apply_live_priority(report):
         calc = calculate_priority_score(
             severity=report.get("severity", 3), lat=report["latitude"], lon=report["longitude"],
             upvotes=report.get("upvotes", 0) or 0, days_open=_age_days(report.get("reported_at")),
-            category=report.get("category")
+            receptor=receptor_from_report(report)
         )
         report["priority_score"] = calc["score"]
         report["priority_level"] = calc["level"]
@@ -278,6 +279,17 @@ def reverse_geocode_endpoint():
     return jsonify({"success": True, **geo_info})
 
 
+@app.route("/api/priority-preview")
+def priority_preview():
+    """Live priority for a pin: finds nearby schools/hospitals/water bodies and scores the spot."""
+    lat = parse_float(request.args.get("lat"), "latitude", -90, 90)
+    lon = parse_float(request.args.get("lon"), "longitude", -180, 180)
+    severity = parse_int(request.args.get("severity"), "severity", 1, 5, default=3)
+    receptors, source = nearby_receptors(lat, lon)
+    calc = calculate_priority_score(severity=severity, lat=lat, lon=lon, receptors=receptors)
+    return jsonify({"success": True, "source": source, **calc, "receptors": receptors[:25]})
+
+
 @app.route("/api/ai-classify", methods=["POST"])
 def ai_classify_endpoint():
     """Classifies an uploaded image (multipart `photo` or JSON `image_base64`). API keys are server-side only."""
@@ -344,30 +356,19 @@ def submit_report():
 
     # Photo: verified by content, stored under a server-generated name. Client-supplied image URLs are ignored.
     image_url = "/static/images/placeholder_dump.svg"
-    ai_classification = None
     photo_bytes = None
     if photo_file and photo_file.filename:
         photo_bytes, mime = read_image(photo_file)
         image_url = save_image(photo_bytes, mime, "report")
-        ai_classification = classify_waste_image(
-            image_bytes=photo_bytes, filename=photo_file.filename, description=description
-        )
 
-    ai_materials, ai_confidence = [], None
     est_vol = clean_text(data.get("estimated_volume"), "estimated_volume", 40) or None
-
-    if ai_classification:
-        if not category or category == "Auto-Detect (AI)":
-            category = ai_classification["category"]
-            severity = ai_classification["severity"]
-        ai_materials = ai_classification.get("detected_materials", [])
-        ai_confidence = ai_classification.get("confidence")
-        est_vol = ai_classification.get("estimated_volume_m3", est_vol)
-
     if not category or category == "Auto-Detect (AI)":
         category = "Mixed Municipal Solid Waste"
 
-    priority_res = calculate_priority_score(severity=severity, lat=lat, lon=lon, upvotes=0, days_open=0.0, category=category)
+    # Priority is driven by LOCATION: nearby schools / hospitals / water bodies (live OpenStreetMap lookup)
+    receptors, receptor_source = nearby_receptors(lat, lon)
+    priority_res = calculate_priority_score(severity=severity, lat=lat, lon=lon, upvotes=0, days_open=0.0,
+                                            receptors=receptors)
 
     # Ward + landmark address are derived from the coordinates (authoritative), not trusted from the client.
     geo = lookup_ward_and_address(lat, lon, wards_geojson_path=WARDS_GEOJSON)
@@ -390,23 +391,19 @@ def submit_report():
         "image_url": image_url,
         "after_image_url": None,
         "upvotes": 0,
-        "ai_confidence": ai_confidence,
-        "ai_materials": ai_materials,
+        "ai_confidence": None,
+        "ai_materials": [],
         "estimated_volume": est_vol,
         "closest_receptor_name": receptor["name"] if receptor else None,
         "closest_receptor_dist": receptor["distance_m"] if receptor else None,
-        "notes": f"Initial report logged. Proximity: {priority_res.get('proximity_note', '')}" + (f" | {priority_res['urgency_note']}" if priority_res.get("urgency_note") else "")
+        "closest_receptor_type": receptor["type"] if receptor else None,
+        "notes": f"Initial report logged. Proximity: {priority_res.get('proximity_note', '')}"
     }
 
     created = create_report(report_payload)
     return jsonify({
         "success": True, "message": "Report submitted successfully",
-        "report": created, "ai_analysis": ai_classification,
-        "priority": {
-            "score": priority_res["score"], "level": priority_res["level"],
-            "breakdown": priority_res["breakdown"], "proximity_note": priority_res["proximity_note"],
-            "urgency_note": priority_res.get("urgency_note", "")
-        }
+        "report": created
     }), 201
 
 

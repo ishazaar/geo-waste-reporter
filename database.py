@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-from geo_analytics import calculate_priority_score
+from geo_analytics import calculate_priority_score, receptor_from_report
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -84,11 +84,18 @@ def init_db():
                 estimated_volume TEXT,
                 closest_receptor_name TEXT,
                 closest_receptor_dist REAL,
+                closest_receptor_type TEXT,
                 reported_at TEXT NOT NULL,
                 cleared_at TEXT,
                 notes TEXT
             )
         """)
+
+        # Migration for databases created before closest_receptor_type existed
+        try:
+            cursor.execute("ALTER TABLE reports ADD COLUMN closest_receptor_type TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         # Upvotes Table (Prevents double upvoting)
         cursor.execute("""
@@ -205,8 +212,8 @@ def create_report(data: Dict[str, Any]) -> Dict[str, Any]:
                         id, title, description, category, severity, priority_score, priority_level,
                         latitude, longitude, address, ward_id, ward_name, status, image_url,
                         after_image_url, upvotes, ai_confidence, ai_materials, estimated_volume,
-                        closest_receptor_name, closest_receptor_dist, reported_at, cleared_at, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        closest_receptor_name, closest_receptor_dist, closest_receptor_type, reported_at, cleared_at, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     report_id,
                     data.get("title", "Illegal Dump Site"),
@@ -229,6 +236,7 @@ def create_report(data: Dict[str, Any]) -> Dict[str, Any]:
                     data.get("estimated_volume"),
                     data.get("closest_receptor_name"),
                     data.get("closest_receptor_dist"),
+                    data.get("closest_receptor_type"),
                     reported_at,
                     data.get("cleared_at"),
                     data.get("notes", "")
@@ -308,7 +316,7 @@ def upvote_report(report_id: str, user_token: str = "default_user") -> Dict[str,
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT severity, latitude, longitude, status, reported_at FROM reports WHERE id = ?",
+            "SELECT severity, latitude, longitude, status, reported_at, closest_receptor_name, closest_receptor_dist, closest_receptor_type FROM reports WHERE id = ?",
             (report_id,)
         )
         rep = cursor.fetchone()
@@ -336,7 +344,7 @@ def upvote_report(report_id: str, user_token: str = "default_user") -> Dict[str,
         calc = calculate_priority_score(
             severity=rep["severity"], lat=rep["latitude"], lon=rep["longitude"],
             upvotes=new_upvotes, days_open=_days_open(rep["reported_at"]),
-            category=rep["category"]
+            receptor=receptor_from_report(rep)
         )
         new_priority, new_level = calc["score"], calc["level"]
 

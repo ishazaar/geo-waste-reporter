@@ -351,7 +351,7 @@ function createReportPopupHTML(report) {
 
       ${report.closest_receptor_name ? `
         <div class="bg-indigo-50/70 border border-indigo-100 rounded-lg p-2 mb-2.5 text-[11px] text-indigo-900">
-          <strong>Eco Receptor:</strong> ${Math.round(report.closest_receptor_dist)}m to <em>${esc(report.closest_receptor_name)}</em>
+          <strong>${report.closest_receptor_type === 'school' ? 'Near school:' : report.closest_receptor_type === 'hospital' ? 'Near hospital:' : 'Nearby:'}</strong> ${Math.round(report.closest_receptor_dist)}m to <em>${esc(report.closest_receptor_name)}</em>
         </div>
       ` : ''}
 

@@ -236,6 +236,9 @@ async function setCoordinates(lat, lon, isRealGPS = false, accuracy = null) {
 
   // Check duplicate near this spot
   checkDuplicateNearby(ReportingState.currentLat, ReportingState.currentLon);
+
+  // Location priority: nearby schools / hospitals / lakes
+  schedulePriorityPreview();
 }
 
 // Perform Real-World Reverse Geocoding
@@ -388,7 +391,6 @@ function setupPhotoUpload() {
     };
     reader.readAsDataURL(file);
 
-    await runAIClassification(file);
   };
 
   fileInput.addEventListener('change', (e) => {
@@ -580,10 +582,7 @@ function setupReportForm() {
       }
 
       if (data.success) {
-        const pr = data.priority;
-        showToast(pr
-          ? `Report logged. Priority ${Math.round(pr.score)}/100 (${pr.level}). ${pr.urgency_note || pr.proximity_note}`
-          : 'Report logged successfully! Coordinates and AI tags registered.', 'success');
+        showToast('Report logged successfully!', 'success');
         form.reset();
         const addrEl = document.getElementById('report-address');
         if (addrEl) delete addrEl.dataset.userEdited;
@@ -635,6 +634,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const addressField = document.getElementById('report-address');
   if (addressField) addressField.addEventListener('input', () => { addressField.dataset.userEdited = '1'; });
 
+  const sevSelect = document.getElementById('report-severity');
+  if (sevSelect) sevSelect.addEventListener('change', schedulePriorityPreview);
+  schedulePriorityPreview();
+
   const gpsBtn = document.getElementById('btn-get-gps');
   if (gpsBtn) gpsBtn.addEventListener('click', triggerRealGPS);
 
@@ -646,3 +649,98 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+
+// ---------------------------------------------------------------------------------------------
+// Location priority preview: draws nearby schools / hospitals / lakes + distance rings on the map
+// ---------------------------------------------------------------------------------------------
+let priorityLayer = null;
+let priorityTimer = null;
+let priorityRequestId = 0;
+
+const RECEPTOR_STYLE = {
+  school:     { color: '#2563eb', label: 'School' },
+  hospital:   { color: '#dc2626', label: 'Hospital / clinic' },
+  water_body: { color: '#0891b2', label: 'Water body' }
+};
+const LEVEL_CLASS = {
+  Critical: 'bg-red-100 text-red-700 border-red-200',
+  High:     'bg-orange-100 text-orange-700 border-orange-200',
+  Medium:   'bg-yellow-100 text-yellow-700 border-yellow-200',
+  Low:      'bg-green-100 text-green-700 border-green-200'
+};
+
+function schedulePriorityPreview() {
+  clearTimeout(priorityTimer);
+  priorityTimer = setTimeout(refreshPriorityPreview, 400);
+}
+
+async function refreshPriorityPreview() {
+  const box = document.getElementById('priority-preview');
+  if (!box) return;
+  const myRequest = ++priorityRequestId;
+  const lat = ReportingState.currentLat, lon = ReportingState.currentLon;
+  const sev = document.getElementById('report-severity')?.value || 3;
+
+  box.innerHTML = '<p class="text-xs text-slate-500 px-1">Checking for nearby schools, hospitals and lakes...</p>';
+  try {
+    const res = await fetch(`/api/priority-preview?lat=${lat}&lon=${lon}&severity=${sev}`);
+    const d = await res.json();
+    if (myRequest !== priorityRequestId) return;   // a newer pin move superseded this one
+    if (!d.success) throw new Error(d.error || 'failed');
+    drawPriorityOnMap(d, lat, lon);
+    renderPriorityBox(box, d);
+  } catch (err) {
+    if (myRequest !== priorityRequestId) return;
+    box.innerHTML = '<p class="text-xs text-rose-600 px-1">Could not calculate location priority. Try moving the pin again.</p>';
+  }
+}
+
+function drawPriorityOnMap(d, lat, lon) {
+  const map = window.PickerMap;
+  if (!map) return;
+  if (priorityLayer) map.removeLayer(priorityLayer);
+  priorityLayer = L.layerGroup().addTo(map);
+
+  // Distance rings used by the scoring rule
+  [[700, '#eab308'], [350, '#f97316'], [150, '#ef4444']].forEach(([radius, color]) => {
+    L.circle([lat, lon], { radius, color, weight: 1.5, dashArray: '5 5', fillColor: color,
+                           fillOpacity: 0.05, interactive: false }).addTo(priorityLayer);
+  });
+
+  (d.receptors || []).forEach(r => {
+    const st = RECEPTOR_STYLE[r.type] || { color: '#64748b', label: 'Place' };
+    const isBest = d.closest_receptor && r.name === d.closest_receptor.name && r.type === d.closest_receptor.type;
+    const m = L.circleMarker([r.lat, r.lon], {
+      radius: isBest ? 10 : 7, color: '#ffffff', weight: 2, fillColor: st.color, fillOpacity: 0.95
+    }).addTo(priorityLayer);
+    m.bindTooltip(`${esc(r.name)} · ${Math.round(r.distance_m)} m`, { permanent: isBest, direction: 'top', offset: [0, -6] });
+  });
+
+  // Make sure the rings and places are visible
+  if (map.getZoom() < 15) map.setView([lat, lon], 16);
+}
+
+function renderPriorityBox(box, d) {
+  const cls = LEVEL_CLASS[d.level] || LEVEL_CLASS.Medium;
+  const rows = (d.receptors || []).slice(0, 5).map(r => {
+    const st = RECEPTOR_STYLE[r.type] || { color: '#64748b', label: 'Place' };
+    return `<li class="flex items-center justify-between text-[11px] text-slate-700">
+      <span class="flex items-center space-x-1.5"><span class="inline-block w-2.5 h-2.5 rounded-full" style="background:${st.color}"></span><span>${esc(r.name)}</span></span>
+      <span class="font-bold">${Math.round(r.distance_m)} m</span></li>`;
+  }).join('');
+  const sourceNote = d.source === 'openstreetmap' ? '' :
+    '<p class="text-[10px] text-amber-700 mt-2">Live OpenStreetMap lookup unavailable right now, so only a short built-in list of places was checked.</p>';
+  box.innerHTML = `
+    <div class="border border-slate-200 rounded-2xl p-3 bg-white shadow-xs">
+      <div class="flex items-center justify-between">
+        <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Location priority</span>
+        <span class="text-xs font-extrabold px-2.5 py-1 rounded-full border ${cls}">${esc(d.level)} · ${d.score}/100</span>
+      </div>
+      <p class="text-xs font-semibold text-slate-800 mt-1.5">${esc(d.proximity_note)}</p>
+      ${d.escalated ? '<p class="text-[11px] font-bold text-red-600 mt-1">Urgent: very close to a school or hospital.</p>' : ''}
+      ${rows ? `<ul class="mt-2 space-y-1 border-t border-slate-100 pt-2">${rows}</ul>` : ''}
+      <p class="text-[10px] text-slate-400 mt-2">Rings on the map: 150 m / 350 m / 700 m from the pin.</p>
+      ${sourceNote}
+    </div>`;
+}
