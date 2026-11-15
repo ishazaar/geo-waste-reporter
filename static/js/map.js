@@ -52,6 +52,16 @@ function initMainMap() {
     }
   });
 
+  // Keep Leaflet in sync with the container size, and warn in the console if it is ever empty
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => window.MainMap && window.MainMap.invalidateSize()).observe(mapElement);
+  }
+  setTimeout(() => {
+    const r = mapElement.getBoundingClientRect();
+    console.log('[GWR] main-map size:', Math.round(r.width) + 'x' + Math.round(r.height));
+    if (r.height < 50) console.error('[GWR] main-map has no height - layout problem');
+  }, 1000);
+
   // Make sure Leaflet measures the container after layout settles
   setTimeout(() => window.MainMap.invalidateSize(), 300);
   window.addEventListener('load', () => window.MainMap.invalidateSize());
