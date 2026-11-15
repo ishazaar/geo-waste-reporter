@@ -264,7 +264,7 @@ function createReportPopupHTML(report) {
   };
 
   const materials = Array.isArray(report.ai_materials) ? report.ai_materials : [];
-  const materialsPills = materials.slice(0, 3).map(m => `<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-semibold">${m}</span>`).join(' ');
+  const materialsPills = materials.slice(0, 3).map(m => `<span class="bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-semibold">${esc(m)}</span>`).join(' ');
 
   // Compute distance from user GPS if available
   let distText = '';
@@ -281,7 +281,7 @@ function createReportPopupHTML(report) {
   return `
     <div class="p-3.5 font-sans text-slate-800 w-72">
       <div class="relative rounded-xl overflow-hidden mb-2.5 bg-slate-100 border border-slate-200 shadow-xs">
-        <img src="${report.image_url}" alt="Waste Photo" class="w-full h-32 object-cover" />
+        <img src="${esc(report.image_url)}" alt="Waste Photo" class="w-full h-32 object-cover" />
         <span class="absolute top-2 left-2 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${priorityColors[report.priority_level] || 'bg-slate-600 text-white'} shadow-sm">
           ${report.priority_level} (${Math.round(report.priority_score)}/100)
         </span>
@@ -291,11 +291,11 @@ function createReportPopupHTML(report) {
       </div>
 
       <div class="mb-1">
-        <span class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">${report.category}</span>
-        <h4 class="font-bold text-sm text-slate-900 leading-snug">${report.title}</h4>
+        <span class="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">${esc(report.category)}</span>
+        <h4 class="font-bold text-sm text-slate-900 leading-snug">${esc(report.title)}</h4>
       </div>
 
-      <p class="text-xs text-slate-500 mb-2 truncate">${report.address || report.ward_name}</p>
+      <p class="text-xs text-slate-500 mb-2 truncate">${esc(report.address || report.ward_name)}</p>
 
       ${distText ? `
         <div class="flex items-center space-x-1.5 text-[11px] font-bold text-blue-600 bg-blue-50/80 px-2 py-1 rounded-md mb-2">
@@ -307,16 +307,16 @@ function createReportPopupHTML(report) {
 
       ${report.closest_receptor_name ? `
         <div class="bg-indigo-50/70 border border-indigo-100 rounded-lg p-2 mb-2.5 text-[11px] text-indigo-900">
-          <strong>Eco Receptor:</strong> ${Math.round(report.closest_receptor_dist)}m to <em>${report.closest_receptor_name}</em>
+          <strong>Eco Receptor:</strong> ${Math.round(report.closest_receptor_dist)}m to <em>${esc(report.closest_receptor_name)}</em>
         </div>
       ` : ''}
 
       <div class="flex items-center justify-between pt-2.5 border-t border-slate-100">
-        <button onclick="handleUpvote('${report.id}')" class="flex items-center space-x-1.5 text-xs font-bold px-3 py-1.5 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 rounded-xl transition-all border border-slate-200 shadow-xs">
+        <button onclick="handleUpvote('${esc(report.id)}')" class="flex items-center space-x-1.5 text-xs font-bold px-3 py-1.5 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 rounded-xl transition-all border border-slate-200 shadow-xs">
           <span id="popup-upvote-${report.id}">${report.upvotes || 0} Upvotes</span>
         </button>
 
-        <button onclick="openAdminModal('${report.id}')" class="text-xs font-bold text-slate-600 hover:text-slate-900 underline">
+        <button onclick="openAdminModal('${esc(report.id)}')" class="text-xs font-bold text-slate-600 hover:text-slate-900 underline">
           Admin Action →
         </button>
       </div>
@@ -342,7 +342,7 @@ async function handleUpvote(reportId) {
     const res = await fetch(`/api/reports/${reportId}/upvote`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_token: 'citizen_' + Math.random().toString(36).substring(7) })
+      body: JSON.stringify({})
     });
     const data = await res.json();
     if (data.success) {
@@ -398,7 +398,7 @@ async function refreshHotspots() {
 
       circle.bindTooltip(`
         <div class="font-sans text-xs">
-          <strong>${cluster.name}</strong><br>
+          <strong>${esc(cluster.name)}</strong><br>
           Reports: ${cluster.total_reports} | Open: ${cluster.open_reports}<br>
           Dumping Severity Index: <strong>${cluster.dumping_index}</strong>
         </div>
@@ -417,8 +417,8 @@ async function refreshHotspots() {
             </span>
             <span class="text-xs font-mono font-bold text-slate-700">Index: ${cluster.dumping_index}</span>
           </div>
-          <h5 class="text-sm font-bold text-slate-900">${cluster.primary_ward}</h5>
-          <p class="text-xs text-slate-500 mb-2">Dominant: <strong>${cluster.primary_category}</strong> (${cluster.total_reports} reports)</p>
+          <h5 class="text-sm font-bold text-slate-900">${esc(cluster.primary_ward)}</h5>
+          <p class="text-xs text-slate-500 mb-2">Dominant: <strong>${esc(cluster.primary_category)}</strong> (${cluster.total_reports} reports)</p>
           <div class="flex items-center justify-between text-xs font-medium">
             <span class="text-slate-600">🚨 Open: <strong>${cluster.open_reports}</strong></span>
             <button class="text-emerald-600 hover:text-emerald-700 font-bold" onclick="focusCluster(${cluster.center.lat}, ${cluster.center.lon})">
@@ -472,7 +472,7 @@ async function loadWardBoundaries() {
         const props = feature.properties;
         layer.bindTooltip(`
           <div class="font-sans text-xs">
-            <strong>${props.ward_name}</strong> (${props.ward_id})<br>
+            <strong>${esc(props.ward_name)}</strong> (${esc(props.ward_id)})<br>
             Total Dumps: ${props.total_reports || 0} | Open: ${props.open_reports || 0}<br>
             Clearance Rate: ${props.clearance_rate || 0}% | Grade: ${props.grade || 'N/A'}
           </div>
@@ -488,7 +488,7 @@ async function loadWardBoundaries() {
           },
           click: (e) => {
             window.MainMap.fitBounds(e.target.getBounds());
-            showToast(`Focused on ${props.ward_name}`, 'info');
+            showToast(`Focused on ${esc(props.ward_name)}`, 'info');
           }
         });
       }

@@ -100,8 +100,8 @@ const PresentationDeck = {
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 my-4">
           <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
             <span class="text-xs font-bold text-emerald-700 uppercase tracking-wider block mb-1">01. Vision Classification</span>
-            <h4 class="font-bold text-slate-900 text-sm mb-2">GeoAI WasteNet</h4>
-            <p class="text-xs text-slate-600 mb-3">Multi-feature computer vision recognizing 6 municipal categories (Plastic, C&D, Organic, E-Waste, Hazardous, Mixed MSW) with 94%+ confidence.</p>
+            <h4 class="font-bold text-slate-900 text-sm mb-2">AI Waste Classification</h4>
+            <p class="text-xs text-slate-600 mb-3">Gemini vision (when an API key is configured) with an offline keyword fallback, recognizing 6 municipal categories (Plastic, C&D, Organic, E-Waste, Hazardous, Mixed MSW) with 94%+ confidence.</p>
             <div class="bg-slate-50 p-2 rounded text-[11px] font-mono text-slate-700">Output: Category, Severity (1-5), Est. Volume (m³), Recyclability</div>
           </div>
 
@@ -116,7 +116,7 @@ const PresentationDeck = {
             <span class="text-xs font-bold text-amber-700 uppercase tracking-wider block mb-1">03. Route Optimization</span>
             <h4 class="font-bold text-slate-900 text-sm mb-2">2-Opt TSP Truck Solver</h4>
             <p class="text-xs text-slate-600 mb-3">Solves the NP-hard Traveling Salesperson pickup tour starting from municipal SWM depots, eliminating backtracking and cutting diesel emissions.</p>
-            <div class="bg-slate-50 p-2 rounded text-[11px] font-mono text-slate-700">Metric: 37.8% km saved &bull; 22.4 kg CO2 avoided</div>
+            <div class="bg-slate-50 p-2 rounded text-[11px] font-mono text-slate-700">Metric: km saved vs. priority-order dispatch (computed live)</div>
           </div>
         </div>
       `
@@ -168,9 +168,9 @@ const PresentationDeck = {
             <span class="text-[10px] text-slate-400">Bellandur &amp; Peenya isolated</span>
           </div>
           <div class="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
-            <span class="text-3xl font-extrabold text-blue-600 block">37.8%</span>
+            <span class="text-3xl font-extrabold text-blue-600 block">Live</span>
             <span class="text-xs font-semibold text-slate-700 mt-1 block">Route Efficiency</span>
-            <span class="text-[10px] text-slate-400">Fuel &amp; turnaround reduction</span>
+            <span class="text-[10px] text-slate-400">Shown per route in the Route tab</span>
           </div>
           <div class="bg-white border border-slate-200 rounded-2xl p-4 text-center shadow-sm">
             <span class="text-3xl font-extrabold text-amber-600 block">100%</span>

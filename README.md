@@ -19,11 +19,11 @@ Illegal municipal solid waste and demolition debris dumping ("black spots") pose
 5. Zero photographic proof or accountability when tickets are closed.
 
 **Geo-Waste Reporter** solves this through an end-to-end GeoAI platform:
-- **Zero-Friction Citizen AI:** Citizens upload a photo; our vision inference engine instantly classifies the waste category (Plastic, C&D Debris, Organic, E-Waste, Hazardous, Mixed MSW), estimates severity and volume, and locks the GPS location.
+- **Zero-Friction Citizen AI:** Citizens upload a photo; the classifier suggests the waste category (Plastic, C&D Debris, Organic, E-Waste, Hazardous, Mixed MSW), estimates severity and volume, and locks the GPS location.
 - **Spatial Deduplication (30m–50m buffer):** Prevents duplicate clutter by identifying nearby active reports and prompting 1-click upvotes.
 - **MCDA Priority Triage:** Calculates a 0–100 Multi-Criteria Decision Analysis priority score weighted by proximity to sensitive water bodies and healthcare facilities.
 - **DBSCAN Spatial Hotspot Detection:** Density-based spatial clustering on pairwise Haversine coordinates reveals chronic recurring dumping zones with ranked Top 10 Hotspots.
-- **Municipal 2-Opt TSP Route Optimizer:** Computes the optimal pickup tour for cleanup trucks, cutting travel distance by **37.8%** and saving carbon emissions.
+- **Municipal 2-Opt TSP Route Optimizer:** Computes the optimal pickup tour for cleanup trucks, reporting the distance and CO₂ saved versus visiting stops in priority order (computed live).
 - **Before/After Verification:** Mandatory photographic proof with an interactive comparison slider before complaints can be marked as "Cleared".
 - **Interactive Pitch Deck:** An integrated 6-slide presentation deck built directly into the app for hackathon judges!
 
@@ -55,7 +55,7 @@ Illegal municipal solid waste and demolition debris dumping ("black spots") pose
          ├── 2. Spatial Deduplication Check (40m Buffer)
          ▼
 [ Flask GeoAI Backend Engine ]
-         ├── AI Waste Vision Inference (GeoAI WasteNet / Gemini Vision API)
+         ├── AI Waste Vision Inference (Gemini Vision API with offline keyword fallback)
          ├── MCDA Priority Scorer (Proximity to Lakes & Hospitals)
          ├── DBSCAN Hotspot Clustering Engine (NumPy Haversine Matrix)
          └── 2-Opt TSP Route Optimizer (Municipal Fleet Logistics)
@@ -79,7 +79,7 @@ Illegal municipal solid waste and demolition debris dumping ("black spots") pose
 
 - **Frontend:** HTML5, Modern ES6 Modules, Tailwind CSS, Leaflet 1.9, Leaflet.heat, Chart.js
 - **Backend:** Python 3.10+, Flask 3.1, Jinja2
-- **Data & Geospatial Math:** NumPy (Pairwise distance matrix & DBSCAN algorithm), Pandas, SQLite3
+- **Data & Geospatial Math:** NumPy (Pairwise distance matrix & DBSCAN algorithm), SQLite3
 - **Spatial Boundaries:** BBMP (Bruhat Bengaluru Mahanagara Palike) Ward Boundaries GeoJSON
 - **Pre-seeded Dataset:** 55 realistic, richly detailed dumping incidents across 10 Bengaluru wards
 
@@ -120,14 +120,14 @@ npx localtunnel --port 5000
 ## ⚡ Quickstart Guide
 
 ### 1. Requirements
-- Python 3.10 or higher (Python 3.14 recommended)
+- Python 3.10 or higher
 - Standard web browser (Chrome, Edge, Firefox, Safari)
 
 ### 2. Run the Application (Windows)
 Double-click `run.bat` or run in PowerShell:
 ```powershell
-Set-Location "C:\Users\HP\.gemini\antigravity\scratch\geo-waste-reporter"
-python app.py
+cd geo-waste-reporter
+python app.py   # prints a one-off admin token for the Admin tab
 ```
 
 ### 3. Run the Application (Linux / macOS)
@@ -209,3 +209,26 @@ To present to hackathon judges:
 3. Click the **"🎙️ Pitch Deck"** tab in the top navigation bar.
 4. Use the `Next →` and `← Prev` buttons or keyboard arrow keys to navigate the 6 slides.
 5. Jump to the **"Live Map & Hotspots"** or **"Route Optimizer"** tab anytime for interactive live demonstrations!
+
+
+---
+
+## 🔐 Configuration, Security & Known Limits
+
+| Environment variable | Purpose |
+| --- | --- |
+| `ADMIN_TOKEN` | **Required in production.** Secret for admin actions (changing report status, reseeding). Without it those endpoints return 503. `python app.py` generates a random one and prints it. |
+| `GEMINI_API_KEY` | Optional. Enables real image classification, read **server-side only**. `GEMINI_MODEL` overrides the default model. |
+| `FLASK_DEBUG` | `1` enables debug mode. Local development only. |
+| `TRUST_PROXY` | `1` when behind a proxy such as Render, so voter IPs are read correctly. |
+| `CORS_ORIGINS` | Optional allow-list of cross-origin callers (default: same-origin only). |
+
+**About the "AI":** with a Gemini key the photo is analysed by the model. Without one, the app uses a
+*keyword heuristic* over the description/filename. It does **not** look at the image, reports low confidence and is
+labelled as a demo fallback in the UI. Volume/weight in fallback mode are per-category averages, not measurements.
+The 55 seeded reports are illustrative demo data.
+
+**Other limits:** ward polygons are 10 simplified demo rectangles (not official boundaries); upvotes are limited per
+IP + browser, which is a deterrent rather than strong identity; SQLite and uploaded photos live on local disk, which is
+**ephemeral on Render's free plan** (use Postgres + object storage for real deployments); offline-queued reports sync
+automatically when back online but cannot include photos.

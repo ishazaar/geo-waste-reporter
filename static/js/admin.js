@@ -51,19 +51,19 @@ window.AdminManager = {
         <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition-colors">
           <td class="py-3 px-4">
             <div class="flex items-center space-x-3">
-              <img src="${r.image_url}" alt="photo" class="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-xs shrink-0" />
+              <img src="${esc(r.image_url)}" alt="photo" class="w-12 h-12 rounded-xl object-cover border border-slate-200 shadow-xs shrink-0" />
               <div>
                 <div class="flex items-center space-x-1.5">
-                  <span class="text-[10px] font-mono font-extrabold text-slate-400">${r.id}</span>
+                  <span class="text-[10px] font-mono font-extrabold text-slate-400">${esc(r.id)}</span>
                   ${distBadge}
                 </div>
-                <h5 class="text-xs font-bold text-slate-900 leading-snug">${r.title}</h5>
-                <span class="text-[11px] text-slate-500">${r.ward_name}</span>
+                <h5 class="text-xs font-bold text-slate-900 leading-snug">${esc(r.title)}</h5>
+                <span class="text-[11px] text-slate-500">${esc(r.ward_name)}</span>
               </div>
             </div>
           </td>
           <td class="py-3 px-4">
-            <span class="text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-lg">${r.category}</span>
+            <span class="text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-lg">${esc(r.category)}</span>
           </td>
           <td class="py-3 px-4">
             <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full ${priorityBadges[r.priority_level] || 'bg-slate-500 text-white'}">
@@ -82,7 +82,7 @@ window.AdminManager = {
             ${timeAgo}
           </td>
           <td class="py-3 px-4 text-right">
-            <button onclick="openAdminModal('${r.id}')" class="px-3.5 py-1.5 bg-slate-900 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all hover:scale-105 active:scale-95">
+            <button onclick="openAdminModal('${esc(r.id)}')" class="px-3.5 py-1.5 bg-slate-900 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all hover:scale-105 active:scale-95">
               Inspect &amp; Proof →
             </button>
           </td>
@@ -134,9 +134,9 @@ async function openAdminModal(reportId) {
     if (auditBox && r.audit_trail) {
       auditBox.innerHTML = r.audit_trail.map(a => `
         <li class="border-l-2 border-emerald-500 pl-3 py-1 text-xs">
-          <span class="font-bold text-slate-800">${a.actor}</span>
+          <span class="font-bold text-slate-800">${esc(a.actor)}</span>
           <span class="text-slate-400 text-[10px] ml-1">(${formatRelativeTime(a.timestamp)})</span>
-          <p class="text-slate-600">${a.details}</p>
+          <p class="text-slate-600">${esc(a.details)}</p>
         </li>
       `).join('');
     }
@@ -169,13 +169,10 @@ async function submitAdminUpdate() {
 
   if (afterFileInput && afterFileInput.files[0]) {
     formData.append('after_photo', afterFileInput.files[0]);
-  } else if (newStatus === 'Cleared') {
-    // If no custom file uploaded, provide default clean proof template
-    formData.append('after_image_url', 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="260"><rect width="400" height="260" fill="%23f0fdf4"/><circle cx="200" cy="120" r="45" fill="%2322c55e" opacity="0.2"/><path d="M180 120 L195 135 L225 105" stroke="%2316a34a" stroke-width="8" stroke-linecap="round" fill="none"/><text x="40" y="210" font-family="sans-serif" font-weight="bold" font-size="16" fill="%23166534">CLEARED &amp; DISINFECTED PROOF</text></svg>');
   }
 
   try {
-    const res = await fetch(`/api/reports/${reportId}/status`, {
+    const res = await adminFetch(`/api/reports/${reportId}/status`, {
       method: 'POST',
       body: formData
     });

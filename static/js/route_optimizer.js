@@ -122,8 +122,8 @@ window.RouteOptimizer = {
 
       const m = L.marker([wp.lat, wp.lon], { icon: icon });
       m.bindTooltip(`
-        <strong>Step ${wp.step_number}: ${wp.name}</strong><br>
-        ${wp.category ? 'Category: ' + wp.category : 'Municipal Dispatch Headquarters'}
+        <strong>Step ${wp.step_number}: ${esc(wp.name)}</strong><br>
+        ${wp.category ? 'Category: ' + esc(wp.category) : 'Municipal Dispatch Headquarters'}
       `);
       routeMarkersGroup.addLayer(m);
     });
@@ -169,8 +169,8 @@ window.RouteOptimizer = {
             ${isDepot ? 'DEPOT' : idx}
           </div>
           <div class="flex-1">
-            <h5 class="font-bold text-slate-800 text-sm leading-tight">${wp.name}</h5>
-            <p class="text-slate-500 text-[11px]">${isDepot ? 'Start & Finish Logistics Depot' : 'Pickup Dump Site • ' + (wp.category || '')}</p>
+            <h5 class="font-bold text-slate-800 text-sm leading-tight">${esc(wp.name)}</h5>
+            <p class="text-slate-500 text-[11px]">${isDepot ? 'Start & Finish Logistics Depot' : 'Pickup Dump Site • ' + esc(wp.category || '')}</p>
           </div>
           ${!isDepot ? `
             <span class="bg-rose-50 text-rose-700 font-bold px-2 py-0.5 rounded text-[10px] border border-rose-200">

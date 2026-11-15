@@ -6,36 +6,48 @@ Handles persistence for reports, audit logs, and upvotes with full transactional
 import sqlite3
 import json
 import os
-import shutil
-import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+from geo_analytics import calculate_priority_score
 
-if os.environ.get("VERCEL"):
-    DB_DIR = tempfile.gettempdir()
-    DB_PATH = os.path.join(DB_DIR, "geo_waste.db")
-    bundled_db = os.path.join(ROOT_DIR, "geo_waste.db")
-    if not os.path.exists(DB_PATH) and os.path.exists(bundled_db):
-        try:
-            shutil.copy2(bundled_db, DB_PATH)
-        except Exception as _copy_err:
-            print(f"Notice copying bundled DB to temp dir: {_copy_err}")
-else:
-    DB_PATH = os.path.join(ROOT_DIR, "geo_waste.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geo_waste.db")
 
 
+@contextmanager
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    """Yields a connection; commits on success, rolls back on error and ALWAYS closes it."""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _days_open(reported_at: Optional[str]) -> float:
+    try:
+        dt = datetime.fromisoformat(reported_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+    except Exception:
+        return 0.0
 
 
 def init_db():
     with get_connection() as conn:
         cursor = conn.cursor()
-        
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        except Exception:
+            pass
+
         # Reports Table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS reports (
@@ -114,8 +126,9 @@ def get_all_reports(
         query += " AND priority_level = ?"
         params.append(priority)
     if search:
-        query += " AND (title LIKE ? OR description LIKE ? OR address LIKE ? OR id LIKE ?)"
-        s = f"%{search}%"
+        query += " AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')"
+        esc_s = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        s = f"%{esc_s}%"
         params.extend([s, s, s, s])
 
     query += " ORDER BY reported_at DESC"
@@ -158,67 +171,73 @@ def get_report_by_id(report_id: str) -> Optional[Dict[str, Any]]:
 
 
 def create_report(data: Dict[str, Any]) -> Dict[str, Any]:
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        
-        # Generate ID if not provided
-        report_id = data.get("id")
-        if not report_id:
-            cursor.execute("SELECT COUNT(*) FROM reports")
-            count = cursor.fetchone()[0] + 1
-            report_id = f"GWR-BLR-{count:04d}"
+    provided_id = data.get("id")
+    reported_at = data.get("reported_at") or datetime.now(timezone.utc).isoformat()
+    ai_materials_str = json.dumps(data.get("ai_materials", []))
 
-        reported_at = data.get("reported_at") or datetime.now(timezone.utc).isoformat()
-        ai_materials_str = json.dumps(data.get("ai_materials", []))
+    for attempt in range(5):
+        try:
+            with get_connection() as conn:
+                cursor = conn.cursor()
 
-        cursor.execute("""
-            INSERT INTO reports (
-                id, title, description, category, severity, priority_score, priority_level,
-                latitude, longitude, address, ward_id, ward_name, status, image_url,
-                after_image_url, upvotes, ai_confidence, ai_materials, estimated_volume,
-                closest_receptor_name, closest_receptor_dist, reported_at, cleared_at, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            report_id,
-            data.get("title", "Illegal Dump Site"),
-            data.get("description", ""),
-            data.get("category", "Mixed Municipal Solid Waste"),
-            data.get("severity", 3),
-            data.get("priority_score", 50.0),
-            data.get("priority_level", "Medium"),
-            float(data.get("latitude")),
-            float(data.get("longitude")),
-            data.get("address", "Bengaluru Urban"),
-            data.get("ward_id", "WARD-00"),
-            data.get("ward_name", "Bengaluru Central"),
-            data.get("status", "Reported"),
-            data.get("image_url", "/static/images/placeholder_dump.jpg"),
-            data.get("after_image_url"),
-            data.get("upvotes", 0),
-            data.get("ai_confidence", 0.92),
-            ai_materials_str,
-            data.get("estimated_volume", "1.5 - 2.5 m³"),
-            data.get("closest_receptor_name"),
-            data.get("closest_receptor_dist"),
-            reported_at,
-            data.get("cleared_at"),
-            data.get("notes", "")
-        ))
+                report_id = provided_id
+                if not report_id:
+                    # MAX-based (not COUNT-based) so deleted rows can never cause an ID collision
+                    cursor.execute(
+                        "SELECT COALESCE(MAX(CAST(substr(id, 9) AS INTEGER)), 0) FROM reports WHERE id LIKE 'GWR-BLR-%'"
+                    )
+                    report_id = f"GWR-BLR-{cursor.fetchone()[0] + 1:04d}"
 
-        # Log creation in audit
-        cursor.execute("""
-            INSERT INTO audit_log (report_id, action, actor, details, timestamp)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            report_id,
-            "REPORT_CREATED",
-            "Citizen Reporter",
-            f"Logged new dump report ({data.get('category')}) with initial priority {data.get('priority_score', 50.0)}",
-            reported_at
-        ))
-        conn.commit()
+                cursor.execute("""
+                    INSERT INTO reports (
+                        id, title, description, category, severity, priority_score, priority_level,
+                        latitude, longitude, address, ward_id, ward_name, status, image_url,
+                        after_image_url, upvotes, ai_confidence, ai_materials, estimated_volume,
+                        closest_receptor_name, closest_receptor_dist, reported_at, cleared_at, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    report_id,
+                    data.get("title", "Illegal Dump Site"),
+                    data.get("description", ""),
+                    data.get("category", "Mixed Municipal Solid Waste"),
+                    data.get("severity", 3),
+                    data.get("priority_score", 50.0),
+                    data.get("priority_level", "Medium"),
+                    float(data.get("latitude")),
+                    float(data.get("longitude")),
+                    data.get("address", "Bengaluru Urban"),
+                    data.get("ward_id", "WARD-00"),
+                    data.get("ward_name", "Bengaluru Central"),
+                    data.get("status", "Reported"),
+                    data.get("image_url", "/static/images/placeholder_dump.svg"),
+                    data.get("after_image_url"),
+                    data.get("upvotes", 0),
+                    data.get("ai_confidence"),
+                    ai_materials_str,
+                    data.get("estimated_volume"),
+                    data.get("closest_receptor_name"),
+                    data.get("closest_receptor_dist"),
+                    reported_at,
+                    data.get("cleared_at"),
+                    data.get("notes", "")
+                ))
 
-    return get_report_by_id(report_id)
+                cursor.execute("""
+                    INSERT INTO audit_log (report_id, action, actor, details, timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    report_id,
+                    "REPORT_CREATED",
+                    "Citizen Reporter",
+                    f"Logged new dump report ({data.get('category')}) with initial priority {data.get('priority_score', 50.0)}",
+                    reported_at
+                ))
+            return get_report_by_id(report_id)
+        except sqlite3.IntegrityError:
+            # Another request grabbed the same ID between SELECT and INSERT: retry (never for caller-supplied IDs)
+            if provided_id or attempt == 4:
+                raise
+    raise RuntimeError("Could not allocate a report ID")
 
 
 def update_report_status(
@@ -232,8 +251,6 @@ def update_report_status(
         cursor = conn.cursor()
         
         now_iso = datetime.now(timezone.utc).isoformat()
-        cleared_at = now_iso if status == "Cleared" else None
-
         update_query = "UPDATE reports SET status = ?"
         params = [status]
 
@@ -243,9 +260,11 @@ def update_report_status(
         if notes:
             update_query += ", notes = ?"
             params.append(notes)
-        if cleared_at:
+        if status == "Cleared":
             update_query += ", cleared_at = ?"
-            params.append(cleared_at)
+            params.append(now_iso)
+        else:
+            update_query += ", cleared_at = NULL"  # re-opened reports must not keep a stale clearance time
 
         update_query += " WHERE id = ?"
         params.append(report_id)
@@ -272,30 +291,42 @@ def update_report_status(
 
 
 def upvote_report(report_id: str, user_token: str = "default_user") -> Dict[str, Any]:
+    """Returns a dict with `success` and, on failure, `status_code` (404 / 409) for the API layer."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        
-        # Check if user already upvoted
+
+        cursor.execute(
+            "SELECT severity, latitude, longitude, status, reported_at FROM reports WHERE id = ?",
+            (report_id,)
+        )
+        rep = cursor.fetchone()
+        if not rep:
+            return {"success": False, "status_code": 404, "message": "Report not found"}
+        if rep["status"] == "Cleared":
+            return {"success": False, "status_code": 409, "message": "This report is already cleared"}
+
         cursor.execute("SELECT 1 FROM upvotes WHERE report_id = ? AND user_token = ?", (report_id, user_token))
         if cursor.fetchone():
-            return {"success": False, "message": "Already upvoted this report"}
+            return {"success": False, "status_code": 409, "message": "Already upvoted this report"}
 
         now_iso = datetime.now(timezone.utc).isoformat()
-        cursor.execute("INSERT INTO upvotes (report_id, user_token, created_at) VALUES (?, ?, ?)",
-                       (report_id, user_token, now_iso))
+        try:
+            cursor.execute("INSERT INTO upvotes (report_id, user_token, created_at) VALUES (?, ?, ?)",
+                           (report_id, user_token, now_iso))
+        except sqlite3.IntegrityError:
+            return {"success": False, "status_code": 409, "message": "Already upvoted this report"}
 
-        # Increment upvotes
         cursor.execute("UPDATE reports SET upvotes = upvotes + 1 WHERE id = ?", (report_id,))
-        
-        # Fetch updated count and recalculate priority score
-        cursor.execute("SELECT severity, upvotes, priority_score, priority_level FROM reports WHERE id = ?", (report_id,))
-        row = cursor.fetchone()
-        new_upvotes = row["upvotes"]
-        
-        # Update priority score slightly (+3 per upvote, capped)
-        new_priority = min(100.0, row["priority_score"] + 3.0)
-        new_level = "Critical" if new_priority >= 75 else "High" if new_priority >= 50 else "Medium" if new_priority >= 30 else "Low"
-        
+        cursor.execute("SELECT upvotes FROM reports WHERE id = ?", (report_id,))
+        new_upvotes = cursor.fetchone()["upvotes"]
+
+        # Recompute with the same MCDA formula used everywhere else (includes the upvote cap and report age)
+        calc = calculate_priority_score(
+            severity=rep["severity"], lat=rep["latitude"], lon=rep["longitude"],
+            upvotes=new_upvotes, days_open=_days_open(rep["reported_at"])
+        )
+        new_priority, new_level = calc["score"], calc["level"]
+
         cursor.execute("UPDATE reports SET priority_score = ?, priority_level = ? WHERE id = ?",
                        (new_priority, new_level, report_id))
 
@@ -303,8 +334,6 @@ def upvote_report(report_id: str, user_token: str = "default_user") -> Dict[str,
             INSERT INTO audit_log (report_id, action, actor, details, timestamp)
             VALUES (?, ?, ?, ?, ?)
         """, (report_id, "UPVOTED", f"Citizen ({user_token[:8]})", f"Report verified/upvoted. Total upvotes: {new_upvotes}", now_iso))
-
-        conn.commit()
 
     return {
         "success": True,
@@ -349,15 +378,17 @@ def get_analytics_summary() -> Dict[str, Any]:
             except Exception:
                 pass
         
-        avg_res_hours = round(sum(resolution_hours) / max(1, len(resolution_hours)), 1) if resolution_hours else 24.5
+        avg_res_hours = round(sum(resolution_hours) / len(resolution_hours), 1) if resolution_hours else 0.0
 
         # Recent 7 days trend
         cursor.execute("""
-            SELECT substr(reported_at, 1, 10) as report_date, COUNT(*) as count 
-            FROM reports 
-            GROUP BY report_date 
-            ORDER BY report_date ASC 
-            LIMIT 14
+            SELECT report_date, count FROM (
+                SELECT substr(reported_at, 1, 10) AS report_date, COUNT(*) AS count
+                FROM reports
+                GROUP BY report_date
+                ORDER BY report_date DESC
+                LIMIT 14
+            ) ORDER BY report_date ASC
         """)
         timeline = [{"date": r["report_date"], "count": r["count"]} for r in cursor.fetchall()]
 

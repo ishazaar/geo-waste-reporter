@@ -169,7 +169,7 @@ window.AnalyticsManager = {
           <tr class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
             <td class="py-2.5 px-3 font-bold text-slate-500 text-xs">#${idx + 1}</td>
             <td class="py-2.5 px-3">
-              <span class="font-bold text-slate-900 text-sm block">${w.ward_name}</span>
+              <span class="font-bold text-slate-900 text-sm block">${esc(w.ward_name)}</span>
               <span class="text-xs text-slate-400">${w.ward_id}</span>
             </td>
             <td class="py-2.5 px-3 text-xs font-semibold text-slate-700">${w.total_reports}</td>

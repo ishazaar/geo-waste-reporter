@@ -1,15 +1,16 @@
 """
-AI Waste Vision Classifier
-Supports:
-1. Built-in Multi-Feature Heuristic & Vision Inference Engine (works 100% offline, zero network)
-2. Direct Google Gemini 1.5/2.0 Vision API integration if GEMINI_API_KEY is supplied
+Waste Classifier
+Two modes:
+1. Google Gemini vision (real image analysis) - used only when the GEMINI_API_KEY environment
+   variable is set on the SERVER. Model is configurable with GEMINI_MODEL.
+2. Keyword heuristic fallback (offline demo). It reads the filename + description text ONLY and does
+   NOT look at image pixels. It reports low confidence and is flagged with is_demo_heuristic=True so the
+   UI never presents it as computer vision.
 """
 
 import os
-import re
 import json
 import base64
-import random
 from typing import Dict, Any, Optional
 
 CATEGORIES = [
@@ -20,6 +21,15 @@ CATEGORIES = [
     "Hazardous / Medical Waste",
     "Mixed Municipal Solid Waste"
 ]
+
+TYPICAL_SIZE = {  # (volume range m3 string, typical weight kg) -- category averages, NOT measured from the photo
+    "Plastic Waste": ("0.5 - 1.5 m³", 60),
+    "Construction & Demolition Debris": ("2.0 - 5.0 m³", 2500),
+    "Organic / Biodegradable Waste": ("1.0 - 2.5 m³", 700),
+    "Electronic Waste (E-Waste)": ("0.3 - 1.0 m³", 120),
+    "Hazardous / Medical Waste": ("0.2 - 1.0 m³", 150),
+    "Mixed Municipal Solid Waste": ("1.0 - 3.0 m³", 500),
+}
 
 CATEGORY_KNOWLEDGE = {
     "Plastic Waste": {
@@ -73,136 +83,154 @@ CATEGORY_KNOWLEDGE = {
 }
 
 
+def sniff_mime(image_bytes: bytes) -> Optional[str]:
+    """Detects the real image type from magic bytes (never trust the filename or client header)."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if image_bytes[:4] == b"GIF8":
+        return "image/gif"
+    return None
+
+
 def classify_waste_image(
     image_bytes: Optional[bytes] = None,
     filename: str = "",
-    description: str = "",
-    gemini_api_key: Optional[str] = None
+    description: str = ""
 ) -> Dict[str, Any]:
     """
-    Classifies a waste photo into municipal waste categories.
-    Attempts Gemini Vision API if key available, otherwise uses high-precision GeoAI vision inference.
+    Classifies a waste report. Uses Gemini if GEMINI_API_KEY is configured on the server and an image is
+    supplied; otherwise (or on any Gemini error) falls back to the clearly-labelled keyword heuristic.
     """
-    # 1. Check if Gemini API Key is available in param or env
-    api_key = gemini_api_key or os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if api_key and image_bytes:
-        try:
-            gemini_result = _call_gemini_vision(image_bytes, api_key)
-            if gemini_result:
-                return gemini_result
-        except Exception as e:
-            print(f"[AI Classifier] Gemini API fallback to local engine: {e}")
+        mime = sniff_mime(image_bytes)
+        if mime:
+            try:
+                return _call_gemini_vision(image_bytes, mime, api_key)
+            except Exception as e:  # never log the key / URL
+                print(f"[Classifier] Gemini call failed, using keyword fallback: {type(e).__name__}: {e}")
 
-    # 2. Local High-Fidelity GeoAI Vision Inference Engine
-    return _local_vision_inference(image_bytes, filename, description)
+    return _local_keyword_inference(filename, description)
 
 
-def _call_gemini_vision(image_bytes: bytes, api_key: str) -> Optional[Dict[str, Any]]:
-    """Calls Gemini 1.5 Flash Vision API for zero-shot waste categorization."""
+def _build_result(category: str, confidence: float, severity: int, volume: str, weight: int,
+                  materials, risks, action: str, recyclable: str, model: str, demo: bool, note: str = "") -> Dict[str, Any]:
+    meta = CATEGORY_KNOWLEDGE[category]
+    severity = max(1, min(5, int(severity)))
+    confidence = max(0.0, min(1.0, float(confidence)))
+    return {
+        "category": category,
+        "confidence": round(confidence, 3),
+        "confidence_percentage": round(confidence * 100, 1),
+        "severity": severity,
+        "recyclability": recyclable or meta["recyclability"],
+        "estimated_volume_m3": volume,
+        "estimated_weight_kg": weight,
+        "truck_dispatch_type": meta["truck_type"],
+        "detected_materials": materials or meta["materials"],
+        "environmental_risks": risks or meta["risks"],
+        "recommended_action": action or meta["recommended_action"],
+        "ai_model": model,
+        "is_demo_heuristic": demo,
+        "note": note,
+        "leachate_risk": "High" if severity >= 4 else "Moderate" if severity == 3 else "Low",
+    }
+
+
+def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str, Any]:
+    """Calls the Gemini vision API. The key is sent in a header (not the URL) so it never ends up in logs."""
     import urllib.request
-    import urllib.error
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    b64_img = base64.b64encode(image_bytes).decode("utf-8")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-    prompt = """
-    Analyze this urban waste dumping photo. Return a clean JSON with these exact keys:
-    {
-      "category": "Plastic Waste" | "Construction & Demolition Debris" | "Organic / Biodegradable Waste" | "Electronic Waste (E-Waste)" | "Hazardous / Medical Waste" | "Mixed Municipal Solid Waste",
-      "confidence": float (between 0.85 and 0.99),
-      "severity": int (1 to 5),
-      "estimated_volume_m3": string (e.g. "1.5 - 2.5 m³"),
-      "estimated_weight_kg": int,
-      "detected_materials": [list of specific items seen],
-      "environmental_risks": [list of risks],
-      "recommended_action": string,
-      "recyclable": string
-    }
-    """
-
+    prompt = (
+        "Analyze this urban waste dumping photo. Return ONLY JSON with these exact keys:\n"
+        '{"category": one of ' + json.dumps(CATEGORIES) + ', '
+        '"confidence": float 0-1 (your honest confidence; use a low value if the photo is unclear or not waste), '
+        '"severity": int 1-5, "estimated_volume_m3": string like "1.5 - 2.5 m³", "estimated_weight_kg": int, '
+        '"detected_materials": [strings], "environmental_risks": [strings], '
+        '"recommended_action": string, "recyclable": string}'
+    )
     payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt},
-                {"inline_data": {"mime_type": "image/jpeg", "data": b64_img}}
-            ]
-        }],
-        "generationConfig": {"temperature": 0.2, "response_mime_type": "application/json"}
+        "contents": [{"parts": [
+            {"text": prompt},
+            {"inlineData": {"mimeType": mime, "data": base64.b64encode(image_bytes).decode("utf-8")}}
+        ]}],
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
     }
-
     req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST"
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        res_data = json.loads(response.read().decode("utf-8"))
+    raw = json.loads(res_data["candidates"][0]["content"]["parts"][0]["text"])
+
+    category = raw.get("category")
+    if category not in CATEGORIES:
+        raise ValueError(f"Model returned unknown category: {category!r}")
+    default_vol, default_wt = TYPICAL_SIZE[category]
+
+    def _list(v):
+        return [str(x)[:80] for x in v][:8] if isinstance(v, list) else None
+
+    try:
+        weight = int(raw.get("estimated_weight_kg", default_wt))
+    except (TypeError, ValueError):
+        weight = default_wt
+    try:
+        confidence = float(raw.get("confidence", 0.5))
+    except (TypeError, ValueError):
+        confidence = 0.5
+    try:
+        severity = int(raw.get("severity", CATEGORY_KNOWLEDGE[category]["severity"]))
+    except (TypeError, ValueError):
+        severity = CATEGORY_KNOWLEDGE[category]["severity"]
+
+    return _build_result(
+        category, confidence, severity,
+        str(raw.get("estimated_volume_m3") or default_vol)[:40], weight,
+        _list(raw.get("detected_materials")), _list(raw.get("environmental_risks")),
+        str(raw.get("recommended_action") or "")[:300], str(raw.get("recyclable") or "")[:100],
+        model=f"Google {model} (vision)", demo=False
     )
 
-    with urllib.request.urlopen(req, timeout=10) as response:
-        res_data = json.loads(response.read().decode("utf-8"))
-        text = res_data["candidates"][0]["content"]["parts"][0]["text"]
-        result = json.loads(text)
-        return result
+
+KEYWORDS = {
+    "Plastic Waste": ["plastic", "bottle", "pet", "bag", "polythene", "wrapper", "cup", "pouch"],
+    "Construction & Demolition Debris": ["debris", "construction", "concrete", "brick", "rubble", "demolition", "cement", "sand", "c&d"],
+    "Organic / Biodegradable Waste": ["organic", "food", "vegetable", "fruit", "market", "leaf", "leaves", "rotting", "wet waste", "kitchen"],
+    "Electronic Waste (E-Waste)": ["ewaste", "e-waste", "circuit", "computer", "battery", "phone", "wire", "screen", "electronic"],
+    "Hazardous / Medical Waste": ["chemical", "medical", "hospital", "syringe", "hazard", "toxic", "oil", "drum", "pharma"],
+    "Mixed Municipal Solid Waste": ["dump", "heap", "overflow", "garbage", "bin", "roadside", "mixed", "black bag", "smelly"],
+}
 
 
-def _local_vision_inference(image_bytes: Optional[bytes], filename: str, description: str) -> Dict[str, Any]:
+def _local_keyword_inference(filename: str, description: str) -> Dict[str, Any]:
     """
-    Intelligent GeoAI local image & semantic analysis.
-    Uses multi-signal matching (text descriptors, filename cues, byte entropy & patterns).
+    OFFLINE DEMO FALLBACK. Counts keyword hits in filename + description. It does not analyse the image,
+    so confidence is deliberately low and the result is flagged is_demo_heuristic=True.
     """
-    text_corpus = f"{filename} {description}".lower()
+    text = f"{filename} {description}".lower()
+    hits = {cat: sum(1 for k in kws if k in text) for cat, kws in KEYWORDS.items()}
+    best, n = max(hits.items(), key=lambda kv: kv[1])
 
-    # Rule-based semantic scoring
-    scores = {cat: 1.0 for cat in CATEGORIES}
-
-    if any(k in text_corpus for k in ["plastic", "bottle", "pet", "bag", "polythene", "wrapper", "cup", "pouch"]):
-        scores["Plastic Waste"] += 12.0
-    if any(k in text_corpus for k in ["debris", "construction", "concrete", "brick", "rubble", "demolition", "cement", "sand", "c&d"]):
-        scores["Construction & Demolition Debris"] += 14.0
-    if any(k in text_corpus for k in ["organic", "food", "vegetable", "fruit", "market", "leaf", "leaves", "rotting", "wet waste", "kitchen"]):
-        scores["Organic / Biodegradable Waste"] += 13.0
-    if any(k in text_corpus for k in ["ewaste", "e-waste", "circuit", "computer", "battery", "phone", "wire", "screen", "electronic"]):
-        scores["Electronic Waste (E-Waste)"] += 15.0
-    if any(k in text_corpus for k in ["chemical", "medical", "hospital", "syringe", "hazard", "toxic", "oil", "drum", "pharma"]):
-        scores["Hazardous / Medical Waste"] += 16.0
-    if any(k in text_corpus for k in ["dump", "heap", "overflow", "garbage", "bin", "roadside", "mixed", "black bag", "smelly"]):
-        scores["Mixed Municipal Solid Waste"] += 10.0
-
-    # If image bytes are present, calculate image byte signature to provide deterministic classification
-    if image_bytes and len(image_bytes) > 100:
-        # Use pseudo-random seed based on image byte hash for consistent results on the same image
-        seed = sum(image_bytes[i] for i in range(0, min(len(image_bytes), 2000), 23)) % 10000
-        rng = random.Random(seed)
-        
-        # If no strong text keywords matched, pick based on byte signature distribution
-        if max(scores.values()) <= 1.0:
-            category_weights = [0.28, 0.22, 0.20, 0.08, 0.05, 0.17]
-            chosen_cat = rng.choices(CATEGORIES, weights=category_weights, k=1)[0]
-            scores[chosen_cat] += 8.0
-        
-        confidence = round(rng.uniform(0.89, 0.98), 3)
-        vol_num = round(rng.uniform(0.8, 3.5), 1)
-        weight_num = int(vol_num * rng.uniform(250, 420))
+    if n == 0:
+        best, confidence = "Mixed Municipal Solid Waste", 0.30
+        note = "No keywords found in the description. Defaulted to mixed waste; please choose the category yourself."
     else:
-        confidence = 0.92
-        vol_num = 1.8
-        weight_num = 520
+        confidence = min(0.70, 0.45 + 0.08 * n)
+        note = "Guessed from the words in your description/filename, not from the photo."
 
-    # Pick highest scoring category
-    best_category = max(scores.items(), key=lambda x: x[1])[0]
-    meta = CATEGORY_KNOWLEDGE[best_category]
-
-    return {
-        "category": best_category,
-        "confidence": confidence,
-        "confidence_percentage": round(confidence * 100, 1),
-        "severity": meta["severity"],
-        "recyclability": meta["recyclability"],
-        "estimated_volume_m3": f"{vol_num} - {round(vol_num + 0.8, 1)} m³",
-        "estimated_weight_kg": weight_num,
-        "truck_dispatch_type": meta["truck_type"],
-        "detected_materials": meta["materials"],
-        "environmental_risks": meta["risks"],
-        "recommended_action": meta["recommended_action"],
-        "ai_model": "GeoAI-WasteNet v2.4 (Vision Multi-Feature Classifier)",
-        "leachate_risk": "High" if meta["severity"] >= 4 else "Moderate" if meta["severity"] == 3 else "Low"
-    }
+    meta = CATEGORY_KNOWLEDGE[best]
+    vol, wt = TYPICAL_SIZE[best]
+    return _build_result(
+        best, confidence, meta["severity"], f"{vol} (typical)", wt,
+        None, None, "", "",
+        model="Keyword heuristic (demo fallback, no image analysis)", demo=True, note=note
+    )

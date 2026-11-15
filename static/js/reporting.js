@@ -308,9 +308,9 @@ async function checkDuplicateNearby(lat, lon) {
             <span class="font-bold text-amber-600 text-sm">Notice:</span>
             <div class="flex-1">
               <p class="font-bold text-sm">Nearby Dump Already Reported (${data.distance_m}m away)</p>
-              <p class="text-amber-800 mt-0.5">"${data.matched_report.title}" was logged by a neighbor with ${data.matched_report.upvotes || 0} upvotes.</p>
+              <p class="text-amber-800 mt-0.5">"${esc(data.matched_report.title)}" was logged by a neighbor with ${data.matched_report.upvotes || 0} upvotes.</p>
               <div class="mt-2.5 flex space-x-2">
-                <button type="button" onclick="handleUpvote('${data.matched_report.id}')" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-sm transition-colors">
+                <button type="button" onclick="handleUpvote('${esc(data.matched_report.id)}')" class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-sm transition-colors">
                   Upvote Existing Instead (+Karma)
                 </button>
                 <button type="button" onclick="dismissDuplicateAlert()" class="px-2.5 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-xl font-semibold hover:bg-amber-100 transition-colors">
@@ -431,7 +431,7 @@ async function runAIClassification(file) {
       }
 
       renderAIAnalysisCard(a);
-      showToast(`AI Classified: ${a.category} (${a.confidence_percentage}% confidence)`, 'success');
+      showToast(`${a.is_demo_heuristic ? 'Keyword guess (not image analysis)' : 'AI classified'}: ${a.category} (${a.confidence_percentage}% confidence)`, 'success');
     }
   } catch (err) {
     console.error('AI Classification failed:', err);
@@ -446,40 +446,40 @@ function renderAIAnalysisCard(analysis) {
   if (!aiResultsBox) return;
 
   const materialsHtml = (analysis.detected_materials || []).map(m => `
-    <span class="bg-white/90 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-xs">${m}</span>
+    <span class="bg-white/90 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg text-xs font-semibold shadow-xs">${esc(m)}</span>
   `).join(' ');
 
   const risksHtml = (analysis.environmental_risks || []).map(r => `
-    <li class="flex items-center space-x-1.5"><span class="text-rose-500 font-bold">•</span><span>${r}</span></li>
+    <li class="flex items-center space-x-1.5"><span class="text-rose-500 font-bold">•</span><span>${esc(r)}</span></li>
   `).join('');
 
   aiResultsBox.innerHTML = `
     <div class="p-5 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white border border-emerald-200 rounded-3xl shadow-sm text-slate-800">
       <div class="flex items-center justify-between mb-2.5">
         <span class="text-xs font-extrabold text-emerald-800 tracking-wider uppercase flex items-center">
-          <span>GeoAI Auto-Vision</span>
+          <span>${analysis.is_demo_heuristic ? 'Keyword guess (demo, photo not analysed)' : 'AI Vision (' + esc(analysis.ai_model) + ')'}</span>
         </span>
         <span class="bg-emerald-600 text-white text-xs font-extrabold px-3 py-0.5 rounded-full shadow-sm">
-          ${analysis.confidence_percentage}% Confidence
+          ${esc(analysis.confidence_percentage)}% Confidence
         </span>
       </div>
 
       <div class="mb-3.5">
-        <h4 class="font-extrabold text-lg text-slate-900 leading-snug">${analysis.category}</h4>
+        <h4 class="font-extrabold text-lg text-slate-900 leading-snug">${esc(analysis.category)}</h4>
         <span class="inline-block text-xs text-emerald-700 font-semibold bg-emerald-100/70 px-2 py-0.5 rounded-md mt-1">
-          Recyclability: ${analysis.recyclability}
+          Recyclability: ${esc(analysis.recyclability)}
         </span>
       </div>
 
       <div class="grid grid-cols-2 gap-2.5 mb-3.5 text-xs">
         <div class="bg-white/90 p-2.5 rounded-xl border border-emerald-100 shadow-xs">
           <span class="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Est. Volume:</span>
-          <span class="font-extrabold text-slate-800 text-sm">${analysis.estimated_volume_m3}</span>
-          <span class="text-[11px] text-slate-500 block">(~${analysis.estimated_weight_kg} kg)</span>
+          <span class="font-extrabold text-slate-800 text-sm">${esc(analysis.estimated_volume_m3)}</span>
+          <span class="text-[11px] text-slate-500 block">(~${esc(analysis.estimated_weight_kg)} kg${analysis.is_demo_heuristic ? ", category average" : ""})</span>
         </div>
         <div class="bg-white/90 p-2.5 rounded-xl border border-emerald-100 shadow-xs">
           <span class="text-slate-400 block text-[10px] font-bold uppercase tracking-wider">Recommended Truck:</span>
-          <span class="font-extrabold text-slate-800 text-xs block truncate mt-0.5">${analysis.truck_dispatch_type}</span>
+          <span class="font-extrabold text-slate-800 text-xs block truncate mt-0.5">${esc(analysis.truck_dispatch_type)}</span>
           <span class="text-[11px] text-emerald-600 block">Auto-Routing Enabled</span>
         </div>
       </div>

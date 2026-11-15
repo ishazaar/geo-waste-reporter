@@ -17,6 +17,55 @@ const AppState = {
   isOnline: navigator.onLine
 };
 
+// ---- Security helpers: ALWAYS escape user-controlled text before putting it into innerHTML ----
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+// Fetch wrapper for admin-only endpoints: asks for the admin token once per session and sends it as a header.
+async function adminFetch(url, options = {}) {
+  let token = sessionStorage.getItem('gwr_admin_token');
+  if (!token) {
+    token = window.prompt('Enter the admin token (printed in the server console, or the ADMIN_TOKEN env var):');
+    if (!token) throw new Error('Admin token required');
+    sessionStorage.setItem('gwr_admin_token', token.trim());
+    token = token.trim();
+  }
+  const res = await fetch(url, { ...options, headers: { ...(options.headers || {}), 'X-Admin-Token': token } });
+  if (res.status === 401 || res.status === 503) sessionStorage.removeItem('gwr_admin_token');
+  return res;
+}
+
+// Replays reports saved while offline (text fields only; photos cannot be queued)
+async function flushOfflineQueue() {
+  if (!navigator.onLine || !AppState.offlineQueue.length) return;
+  const remaining = [];
+  let sent = 0;
+  for (const item of AppState.offlineQueue) {
+    try {
+      const res = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(item)
+      });
+      if (res.ok) sent++;
+      else if (res.status >= 500) remaining.push(item);   // server problem: retry later; 4xx = invalid/duplicate: drop
+    } catch (e) {
+      remaining.push(item);                                // still offline
+    }
+  }
+  AppState.offlineQueue = remaining;
+  localStorage.setItem('gwr_offline_queue', JSON.stringify(remaining));
+  if (sent) {
+    showToast(`${sent} offline report(s) synced`, 'success');
+    if (typeof fetchReports === 'function') fetchReports();
+  }
+}
+window.addEventListener('online', flushOfflineQueue);
+document.addEventListener('DOMContentLoaded', () => setTimeout(flushOfflineQueue, 1500));
+
 // Toast Notifications
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
@@ -40,7 +89,7 @@ function showToast(message, type = 'info') {
   toast.className = `${bgColors[type] || bgColors.info} text-white px-4 py-3 rounded-xl shadow-lg flex items-center space-x-3 text-sm font-medium transform transition-all duration-300 translate-y-2 opacity-0`;
   toast.innerHTML = `
     <span class="font-bold text-base">${icons[type] || '•'}</span>
-    <span class="flex-1">${message}</span>
+    <span class="flex-1">${esc(message)}</span>
   `;
 
   container.appendChild(toast);
@@ -150,9 +199,9 @@ function updateHeaderKPIs() {
 
 // Reseed Database Trigger
 async function triggerReseed() {
-  if (!confirm('Reset and reseed database with 55 realistic Bengaluru dumping reports?')) return;
+  if (!confirm('This DELETES ALL reports (including real citizen reports) and loads the 55 demo reports. Continue?')) return;
   try {
-    const res = await fetch('/api/seed', { method: 'POST' });
+    const res = await adminFetch('/api/seed', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
       showToast('Database successfully reseeded!', 'success');

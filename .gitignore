@@ -46,3 +46,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# User-uploaded photos (generated at runtime)
+static/uploads/

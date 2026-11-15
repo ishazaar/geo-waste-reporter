@@ -308,6 +308,8 @@ def optimize_cleanup_route(target_reports: list, depot_key: str = "central") -> 
     """
     2-Opt Traveling Salesperson Problem (TSP) solver for municipal waste cleanup trucks.
     Starts at depot, visits all selected report points, and returns to depot.
+    NOTE: `baseline_distance_km` is the distance if trucks visited the stops in the order given
+    (callers pass them sorted by priority), i.e. "priority-order dispatch" - not the DB row order.
     Computes total distance, optimized order, and carbon emissions saved.
     """
     depot = MUNICIPAL_DEPOTS.get(depot_key, MUNICIPAL_DEPOTS["central"])
@@ -338,7 +340,7 @@ def optimize_cleanup_route(target_reports: list, depot_key: str = "central") -> 
             if i != j:
                 dist_mat[i][j] = haversine_distance(points[i]["lat"], points[i]["lon"], points[j]["lat"], points[j]["lon"])
 
-    # Baseline sequential order distance (0 -> 1 -> 2 -> ... -> N -> 0)
+    # Baseline = visit stops in the order supplied by the caller (priority order): 0 -> 1 -> ... -> N -> 0
     baseline_dist = sum(dist_mat[i][(i + 1) % num_points] for i in range(num_points))
 
     # Nearest Neighbor Initial Route

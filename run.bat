@@ -1,10 +1,9 @@
 @echo off
-title Geo-Waste Reporter (GeoAI Hackathon 2026)
+title Geo-Waste Reporter
 echo =========================================================
-echo    Geo-Waste Reporter - AI & Geospatial Citizen Platform
-echo    BBMP Bengaluru Illegal Dumping Analytics & Triage
+echo    Geo-Waste Reporter - AI ^& Geospatial Citizen Platform
 echo =========================================================
 echo.
-echo Checking database and launching Flask web server...
+echo Starting Flask server (an admin token will be printed below)...
 python app.py
 pause

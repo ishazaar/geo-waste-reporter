@@ -31,9 +31,9 @@ This document contains the exact slide-by-slide structure, speaker notes, and ar
 
 ## Slide 3: GeoAI Core & Data Sources
 ### Mathematical Rigor & Geospatial Models
-1. **AI Waste Classification (GeoAI WasteNet / Gemini Vision API):**
+1. **AI Waste Classification (Gemini Vision API, with offline keyword fallback):**
    - Classifies 6 municipal waste categories: *Plastic Waste*, *Construction & Demolition Debris*, *Organic / Biodegradable Waste*, *Electronic Waste (E-Waste)*, *Hazardous / Medical Waste*, and *Mixed Municipal Solid Waste*.
-   - Outputs: Category, Confidence Score (85%–98%), Severity (1–5), Estimated Volume ($m^3$), Recyclability, and Dispatch Fleet recommendations.
+   - Outputs: Category, Confidence Score (reported by the model; low for the keyword fallback), Severity (1–5), Estimated Volume ($m^3$), Recyclability, and Dispatch Fleet recommendations.
 2. **DBSCAN Density-Based Hotspot Clustering:**
    - Runs DBSCAN on pairwise Haversine distance matrix ($\epsilon = 250\text{ m}$, $\text{min\_samples} = 3$).
    - Isolates recurring chronic dumping zones from random one-off litter.
@@ -62,7 +62,7 @@ flowchart TD
 
     subgraph GeoAI Backend Engine
         E --> F[Flask REST API Core]
-        F --> G[GeoAI WasteNet / Gemini Vision API]
+        F --> G[Gemini Vision API, with offline keyword fallback]
         F --> H[MCDA Priority Scorer]
         F --> I[DBSCAN Hotspot Clustering]
         F --> J[2-Opt TSP Route Optimizer]
@@ -99,11 +99,10 @@ flowchart TD
   - *Hotspot #3:* Shivajinagar Russell Market (Decomposing organic wet waste & hospital boundary)
   - *Hotspot #4:* Koramangala 80ft Road (Commercial plastic & food delivery packaging)
   - *Hotspot #5:* Whitefield ECC Road (Illegal night-dumped construction rubble)
-- **37.8% Fuel & Route Efficiency Gain:**
-  - Unoptimized sequential trip: 51.7 km &bull; 2-Opt TSP optimized tour: 32.2 km.
-  - CO2 emissions reduced by 16.5 kg per truck shift.
-- **100% Photographic Proof Accountability:**
-  - Cleared status strictly requires Before/After photo comparison verification.
+- **Route Efficiency (computed live in the Route tab):**
+  - Compares the 2-Opt TSP tour against visiting stops in priority order; the saving varies with the selected reports and depot.
+- **Photographic Proof:**
+  - Admins can attach an after-photo when clearing a report; if none is attached a placeholder is shown and the audit log records it.
 
 ---
 
