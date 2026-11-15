@@ -33,11 +33,29 @@ function initMainMap() {
   // Custom Zoom Control at Top Right
   L.control.zoom({ position: 'topright' }).addTo(window.MainMap);
 
-  // CartoDB Voyager Clean Tiles
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Base map tiles (OpenStreetMap) with automatic fallback if tiles fail to load
+  const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
   }).addTo(window.MainMap);
+
+  let tileErrors = 0;
+  osm.on('tileerror', () => {
+    tileErrors++;
+    if (tileErrors === 6) {
+      console.warn('OSM tiles failing, switching to fallback tiles');
+      window.MainMap.removeLayer(osm);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 19
+      }).addTo(window.MainMap);
+    }
+  });
+
+  // Make sure Leaflet measures the container after layout settles
+  setTimeout(() => window.MainMap.invalidateSize(), 300);
+  window.addEventListener('load', () => window.MainMap.invalidateSize());
+  window.addEventListener('resize', () => window.MainMap.invalidateSize());
 
   MapLayers.markerGroup = L.layerGroup().addTo(window.MainMap);
   MapLayers.clusterGroup = L.layerGroup().addTo(window.MainMap);
@@ -373,14 +391,18 @@ async function refreshHotspots() {
       if (MapLayers.heatLayer) {
         window.MainMap.removeLayer(MapLayers.heatLayer);
       }
-      MapLayers.heatLayer = L.heatLayer(data.heatmap_points, {
-        radius: 26,
-        blur: 18,
-        maxZoom: 16,
-        gradient: { 0.2: '#22c55e', 0.5: '#eab308', 0.8: '#f97316', 1.0: '#ef4444' }
-      });
-      if (MapLayers.heatmapEnabled) {
-        MapLayers.heatLayer.addTo(window.MainMap);
+      try {
+        MapLayers.heatLayer = L.heatLayer(data.heatmap_points, {
+          radius: 26,
+          blur: 18,
+          maxZoom: 16,
+          gradient: { 0.2: '#22c55e', 0.5: '#eab308', 0.8: '#f97316', 1.0: '#ef4444' }
+        });
+        if (MapLayers.heatmapEnabled) {
+          MapLayers.heatLayer.addTo(window.MainMap);
+        }
+      } catch (heatErr) {
+        console.warn('Heatmap could not be drawn:', heatErr);
       }
     }
 

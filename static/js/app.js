@@ -185,7 +185,7 @@ async function fetchReports() {
     if (data.success) {
       AppState.reports = data.reports;
       updateHeaderKPIs();
-      if (window.MainMap) window.MainMap.renderMarkers(AppState.reports);
+      if (window.MainMap && typeof renderMarkers === 'function') renderMarkers(AppState.reports);
       if (window.AdminManager) window.AdminManager.renderTable(AppState.reports);
       return data.reports;
     }
@@ -226,7 +226,7 @@ async function triggerReseed() {
     if (data.success) {
       showToast('Database successfully reseeded!', 'success');
       await fetchReports();
-      if (window.MainMap) window.MainMap.refreshHotspots();
+      if (window.MainMap && typeof refreshHotspots === 'function') refreshHotspots();
       if (window.AnalyticsManager) window.AnalyticsManager.render();
     }
   } catch (err) {
