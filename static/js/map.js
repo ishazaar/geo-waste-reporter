@@ -70,6 +70,7 @@ function initMainMap() {
 
   MapLayers.markerGroup = L.layerGroup().addTo(window.MainMap);
   MapLayers.clusterGroup = L.layerGroup().addTo(window.MainMap);
+  window.MainMap.createPane('repeatPane').style.zIndex = 650;   // above report pins (600), below popups (700)
   MapLayers.repeatGroup = L.layerGroup().addTo(window.MainMap);
 
   loadWardBoundaries();
@@ -439,10 +440,10 @@ async function refreshRepeatSites() {
 
       const icon = L.divIcon({
         html: `<div class="repeat-badge ${lvl}">&#8635;${site.relapses}</div>`,
-        className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+        className: '', iconSize: [40, 40], iconAnchor: [20, 20]
       });
-      L.marker([site.latitude, site.longitude], { icon, zIndexOffset: 800 })
-        .bindPopup(repeatSitePopup(site), { maxWidth: 290 })
+      L.marker([site.latitude, site.longitude], { icon, pane: 'repeatPane' })
+        .bindPopup(repeatSitePopup(site), { maxWidth: 300, minWidth: 260, className: 'repeat-popup' })
         .addTo(MapLayers.repeatGroup);
 
       if (list) {
@@ -457,7 +458,7 @@ async function refreshRepeatSites() {
           <p class="text-[11px] text-slate-500 mt-0.5">${esc(site.prediction)}</p>`;
         item.addEventListener('click', () => {
           window.MainMap.setView([site.latitude, site.longitude], 17, { animate: true });
-          L.popup({ maxWidth: 290 }).setLatLng([site.latitude, site.longitude]).setContent(repeatSitePopup(site)).openOn(window.MainMap);
+          L.popup({ maxWidth: 300, minWidth: 260, className: 'repeat-popup' }).setLatLng([site.latitude, site.longitude]).setContent(repeatSitePopup(site)).openOn(window.MainMap);
         });
         list.appendChild(item);
       }
@@ -468,16 +469,30 @@ async function refreshRepeatSites() {
 }
 
 function repeatSitePopup(site) {
+  const lvl = site.level.toLowerCase();
+  const color = lvl === 'chronic' ? '#7f1d1d' : lvl === 'recurring' ? '#c2410c' : '#b45309';
+  const urgent = site.currently_dirty || (site.days_until_next !== null && site.days_until_next <= 0);
+  const predBg = urgent ? '#fef2f2' : '#fffbeb';
+  const predBorder = urgent ? '#fecaca' : '#fde68a';
+  const predColor = urgent ? '#b91c1c' : '#92400e';
+  const stat = (value, label) => `
+    <div style="flex:1;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:6px 2px">
+      <div style="font-size:16px;font-weight:800;color:#0f172a;line-height:1.1">${value}</div>
+      <div style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">${label}</div>
+    </div>`;
   return `
-    <div style="font-family:inherit">
-      <div style="font-size:10px;font-weight:800;color:#7f1d1d;text-transform:uppercase;letter-spacing:.05em">${esc(site.level)} repeat-dump spot</div>
-      <div style="font-size:14px;font-weight:800;margin:2px 0 6px">${esc(site.name)}</div>
-      <div style="font-size:12px;line-height:1.5">
-        Cleaned <b>${site.cleanups}</b> time${site.cleanups === 1 ? '' : 's'}, dirty again <b>${site.relapses}</b> time${site.relapses === 1 ? '' : 's'}.<br>
-        Usually dirty again about <b>${Math.round(site.avg_days_until_dirty_again)} days</b> after a clean-up.<br>
-        <span style="color:#b91c1c;font-weight:700">${esc(site.prediction)}</span>
+    <div class="repeat-popup-card">
+      <span style="display:inline-block;font-size:10px;font-weight:800;color:${color};background:${color}14;border:1px solid ${color}44;border-radius:999px;padding:2px 9px;text-transform:uppercase;letter-spacing:.05em">${esc(site.level)} repeat spot</span>
+      <div style="font-size:15px;font-weight:800;color:#0f172a;line-height:1.25;margin:8px 0 10px">${esc(site.name)}</div>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        ${stat(site.cleanups, 'Cleaned')}
+        ${stat(site.relapses, 'Dirty again')}
+        ${stat('~' + Math.round(site.avg_days_until_dirty_again) + 'd', 'Usual gap')}
       </div>
-      <div style="font-size:11px;color:#475569;margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px">${esc(site.recommendation)}</div>
+      <div style="background:${predBg};border:1px solid ${predBorder};color:${predColor};border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700;line-height:1.4">
+        ${esc(site.prediction)}
+      </div>
+      <div style="font-size:11px;color:#475569;line-height:1.45;margin-top:9px">${esc(site.recommendation)}</div>
     </div>`;
 }
 

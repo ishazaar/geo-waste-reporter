@@ -256,3 +256,13 @@ body {
 }
 .repeat-badge.watch { background: #b45309; }
 .repeat-badge.recurring { background: #c2410c; }
+
+/* Repeat-dump popup: global popup padding is 0, so this card supplies its own */
+.repeat-popup .leaflet-popup-content { width: 270px !important; }
+.repeat-popup-card { padding: 14px 16px 14px 16px; }
+.repeat-popup .leaflet-popup-close-button {
+  top: 8px !important; right: 8px !important; width: 22px !important; height: 22px !important;
+  font-size: 18px !important; line-height: 20px !important; border-radius: 50%;
+  background: #f1f5f9; color: #475569 !important; text-align: center; padding: 0 !important;
+}
+.repeat-badge { width: 40px; height: 40px; font-size: 13px; }
