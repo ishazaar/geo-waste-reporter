@@ -93,12 +93,19 @@ function attemptAutoGPS() {
       (pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
-        const acc = pos.coords.accuracy;
+        const acc = Math.round(pos.coords.accuracy || 15);
+        if (!isInsideBengaluru(lat, lon)) {
+          showToast('Your location is outside Bengaluru. Tap the map to place the pin manually.', 'info');
+          return;
+        }
         ReportingState.userRealGPS = { lat, lon, acc };
         setCoordinates(lat, lon, true, acc);
+        // Without this the pin moved but the map stayed where it was, so the location looked missing
+        if (window.PickerMap) window.PickerMap.setView([lat, lon], 16);
       },
       (err) => {
-        console.log('Defaulting to Bengaluru coordinates; GPS can be manually triggered.');
+        console.log('Auto GPS unavailable:', err && err.message);
+        if (!window.isSecureContext) showToast(gpsErrorMessage(err), 'warning');
       },
       { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 }
     );
@@ -124,6 +131,17 @@ function triggerRealGPS() {
       const lon = pos.coords.longitude;
       const accuracy = Math.round(pos.coords.accuracy || 10);
 
+      if (!isInsideBengaluru(lat, lon)) {
+        showToast('Your location is outside Bengaluru. Tap the map to place the pin manually.', 'warning');
+        if (gpsBadge) {
+          gpsBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200';
+          gpsBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>Pinpoint GPS Mode</span>`;
+        }
+        return;
+      }
+
+      const addrEl = document.getElementById('report-address');
+      if (addrEl) delete addrEl.dataset.userEdited;   // fresh GPS fix: refresh the address too
       ReportingState.userRealGPS = { lat, lon, accuracy };
       setCoordinates(lat, lon, true, accuracy);
 
@@ -135,7 +153,7 @@ function triggerRealGPS() {
     },
     (err) => {
       console.warn('Real GPS access failed or denied:', err);
-      showToast('Could not access live device GPS. Using selected map pin.', 'info');
+      showToast(gpsErrorMessage(err), 'warning');
       if (gpsBadge) {
         gpsBadge.className = 'flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200';
         gpsBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>Pinpoint GPS Mode</span>`;
@@ -157,7 +175,7 @@ function applyGPSPreset(presetKey) {
 
   const addressInput = document.getElementById('report-address');
   const wardSelect = document.getElementById('report-ward');
-  if (addressInput) addressInput.value = p.name + ', Bengaluru';
+  if (addressInput) { delete addressInput.dataset.userEdited; addressInput.value = p.name + ', Bengaluru'; }
   if (wardSelect) wardSelect.value = p.ward;
 
   showToast(`Moved to ${p.name}`, 'info');
@@ -209,6 +227,10 @@ async function setCoordinates(lat, lon, isRealGPS = false, accuracy = null) {
     }
   }
 
+  if (!isInsideBengaluru(ReportingState.currentLat, ReportingState.currentLon)) {
+    showToast('That spot is outside Bengaluru. Reports can only be submitted within Bengaluru.', 'warning');
+  }
+
   // Trigger Reverse Geocoding to get authentic address
   performReverseGeocode(ReportingState.currentLat, ReportingState.currentLon);
 
@@ -217,7 +239,9 @@ async function setCoordinates(lat, lon, isRealGPS = false, accuracy = null) {
 }
 
 // Perform Real-World Reverse Geocoding
+let geocodeRequestId = 0;
 async function performReverseGeocode(lat, lon) {
+  const myRequest = ++geocodeRequestId;   // a newer pin move makes this request's result stale
   const addressInput = document.getElementById('report-address');
   const wardSelect = document.getElementById('report-ward');
   const geocodeSpinner = document.getElementById('geocode-indicator');
@@ -271,9 +295,11 @@ async function performReverseGeocode(lat, lon) {
     console.error('Local reverse geocode error:', err);
   }
 
+  if (myRequest !== geocodeRequestId) return;   // user moved the pin again meanwhile: drop this result
   if (geocodeSpinner) geocodeSpinner.classList.add('hidden');
 
-  if (resolvedAddress && addressInput && (!addressInput.value || addressInput.value.includes('Bengaluru') || addressInput.value.includes('Road'))) {
+  // Overwrite the address unless the person typed their own (old check looked for the words "Bengaluru"/"Road")
+  if (resolvedAddress && addressInput && !addressInput.dataset.userEdited) {
     addressInput.value = resolvedAddress;
   }
 
@@ -556,6 +582,8 @@ function setupReportForm() {
       if (data.success) {
         showToast('Report logged successfully! Coordinates and AI tags registered.', 'success');
         form.reset();
+        const addrEl = document.getElementById('report-address');
+        if (addrEl) delete addrEl.dataset.userEdited;
         ReportingState.selectedFile = null;
         ReportingState.aiResult = null;
         const preview = document.getElementById('photo-preview-img');
@@ -591,6 +619,9 @@ function setupReportForm() {
 document.addEventListener('DOMContentLoaded', () => {
   setupPhotoUpload();
   setupReportForm();
+
+  const addressField = document.getElementById('report-address');
+  if (addressField) addressField.addEventListener('input', () => { addressField.dataset.userEdited = '1'; });
 
   const gpsBtn = document.getElementById('btn-get-gps');
   if (gpsBtn) gpsBtn.addEventListener('click', triggerRealGPS);

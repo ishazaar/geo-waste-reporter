@@ -49,3 +49,5 @@ Thumbs.db
 
 # User-uploaded photos (generated at runtime)
 static/uploads/
+uploads/
+/tmp/

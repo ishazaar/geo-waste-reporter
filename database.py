@@ -12,7 +12,19 @@ from typing import List, Dict, Any, Optional
 
 from geo_analytics import calculate_priority_score
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "geo_waste.db")
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Where the SQLite file and uploaded photos live. On Vercel / AWS Lambda the project folder is READ-ONLY and only
+# /tmp is writable (and /tmp is wiped between cold starts), so use it there. Override with DATA_DIR if you
+# have a persistent disk.
+_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+DATA_DIR = os.environ.get("DATA_DIR") or ("/tmp/geo-waste" if _SERVERLESS else _BASE_DIR)
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError as _e:  # never crash at import time
+    print(f"[database] Could not create DATA_DIR {DATA_DIR}: {_e}")
+
+DB_PATH = os.path.join(DATA_DIR, "geo_waste.db")
 
 
 @contextmanager

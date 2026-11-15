@@ -32,7 +32,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from database import (
     init_db, get_all_reports, get_report_by_id, create_report,
     update_report_status, upvote_report, get_analytics_summary,
-    get_ward_stats, reset_db
+    get_ward_stats, reset_db, DATA_DIR
 )
 from geo_analytics import (
     haversine_distance, calculate_priority_score, check_for_duplicate,
@@ -44,9 +44,12 @@ from seed_data import seed_database
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-UPLOAD_DIR = os.path.join(STATIC_DIR, "uploads")
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")   # writable location (see database.DATA_DIR)
 WARDS_GEOJSON = os.path.join(STATIC_DIR, "data", "bangalore_wards.geojson")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+except OSError as _e:  # read-only filesystem: the app must still start; uploads will return a clean error
+    print(f"[app] Upload folder unavailable ({_e}); photo uploads disabled")
 
 # Rough bounding box around Greater Bengaluru: (min_lat, max_lat, min_lon, max_lon)
 BLR_BOUNDS = (12.70, 13.30, 77.30, 77.95)
@@ -56,7 +59,7 @@ EXT_FOR_MIME = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB max upload
 
-if os.environ.get("TRUST_PROXY") == "1":
+if os.environ.get("TRUST_PROXY") == "1" or os.environ.get("VERCEL"):
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 ALLOWED_ORIGINS = {o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()}
@@ -140,9 +143,13 @@ def read_image(file_storage):
 def save_image(data, mime, prefix):
     """Saves verified image bytes under a server-generated name with an extension derived from content."""
     name = f"{prefix}_{uuid.uuid4().hex[:12]}{EXT_FOR_MIME[mime]}"
-    with open(os.path.join(UPLOAD_DIR, name), "wb") as f:
-        f.write(data)
-    return f"/static/uploads/{name}"
+    try:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        with open(os.path.join(UPLOAD_DIR, name), "wb") as f:
+            f.write(data)
+    except OSError:
+        raise ApiError("Photo uploads are not available on this server right now", 503)
+    return f"/uploads/{name}"
 
 
 # ---------------------------------------------------------------- auth
@@ -217,6 +224,12 @@ def client_token():
 @app.route("/")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
+
+
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    """Serves user photos from the writable data dir (they no longer live inside /static)."""
+    return send_from_directory(UPLOAD_DIR, filename)
 
 
 # ---------------------------------------------------------------- reports

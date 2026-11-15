@@ -79,14 +79,18 @@ function locateUserOnMap() {
       const acc = Math.round(pos.coords.accuracy || 15);
 
       updateUserLocationOnMap(lat, lon, acc, true);
-      showToast(`🎯 Real GPS Located: ±${acc}m accuracy`, 'success');
+      if (isInsideBengaluru(lat, lon)) {
+        showToast(`🎯 Real GPS Located: ±${acc}m accuracy`, 'success');
+      } else {
+        showToast('You appear to be outside Bengaluru. Reports are only shown for Bengaluru.', 'info');
+      }
 
       // Re-render markers with distance calculations from user
       renderMarkers(AppState.reports);
     },
     (err) => {
       console.warn('Geolocation error:', err);
-      showToast('Could not access real device GPS location.', 'warning');
+      showToast(gpsErrorMessage(err), 'warning');
     },
     { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
   );

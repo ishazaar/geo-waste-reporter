@@ -24,6 +24,26 @@ function esc(value) {
   ));
 }
 
+// ---- Location helpers shared by the main map and the report picker ----
+const BLR_BOUNDS = { minLat: 12.70, maxLat: 13.30, minLon: 77.30, maxLon: 77.95 };  // keep in sync with app.py
+
+function isInsideBengaluru(lat, lon) {
+  return lat >= BLR_BOUNDS.minLat && lat <= BLR_BOUNDS.maxLat && lon >= BLR_BOUNDS.minLon && lon <= BLR_BOUNDS.maxLon;
+}
+
+// Turns a geolocation failure into a message the person can act on
+function gpsErrorMessage(err) {
+  if (!window.isSecureContext) {
+    return 'Your browser blocks location on non-secure pages. Open this site over https:// (or http://localhost).';
+  }
+  switch (err && err.code) {
+    case 1: return 'Location permission denied. Allow location for this site in your browser settings, then try again.';
+    case 2: return 'Your device could not determine its location. Check that GPS/location services are on.';
+    case 3: return 'Getting your location timed out. Try again, ideally outdoors or with a stronger signal.';
+    default: return 'Could not access your device location.';
+  }
+}
+
 // Fetch wrapper for admin-only endpoints: asks for the admin token once per session and sends it as a header.
 async function adminFetch(url, options = {}) {
   let token = sessionStorage.getItem('gwr_admin_token');

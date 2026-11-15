@@ -220,7 +220,8 @@ To present to hackathon judges:
 | `ADMIN_TOKEN` | **Required in production.** Secret for admin actions (changing report status, reseeding). Without it those endpoints return 503. `python app.py` generates a random one and prints it. |
 | `GEMINI_API_KEY` | Optional. Enables real image classification, read **server-side only**. `GEMINI_MODEL` overrides the default model. |
 | `FLASK_DEBUG` | `1` enables debug mode. Local development only. |
-| `TRUST_PROXY` | `1` when behind a proxy such as Render, so voter IPs are read correctly. |
+| `TRUST_PROXY` | `1` when behind a proxy such as Render, so voter IPs are read correctly (set automatically on Vercel). |
+| `DATA_DIR` | Optional folder for the SQLite DB and uploaded photos. Defaults to the project folder, or `/tmp` on Vercel. |
 | `CORS_ORIGINS` | Optional allow-list of cross-origin callers (default: same-origin only). |
 
 **About the "AI":** with a Gemini key the photo is analysed by the model. Without one, the app uses a
@@ -232,3 +233,8 @@ The 55 seeded reports are illustrative demo data.
 IP + browser, which is a deterrent rather than strong identity; SQLite and uploaded photos live on local disk, which is
 **ephemeral on Render's free plan** (use Postgres + object storage for real deployments); offline-queued reports sync
 automatically when back online but cannot include photos.
+
+**Deploying on Vercel:** the project folder is read-only and `/tmp` is wiped on every cold start, so the SQLite database
+and uploaded photos are **temporary** there: the 55 demo reports are re-created on each cold start and new reports/photos
+can disappear, or differ between server instances. That is fine for a demo; for real use switch to a hosted database
+(e.g. Neon/Supabase Postgres or Turso) and object storage. Set `ADMIN_TOKEN` in Project Settings -> Environment Variables.
