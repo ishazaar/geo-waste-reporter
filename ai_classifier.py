@@ -11,6 +11,7 @@ Two modes:
 import os
 import json
 import base64
+import re
 from typing import Dict, Any, Optional
 
 CATEGORIES = [
@@ -167,9 +168,30 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
         url, data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST"
     )
-    with urllib.request.urlopen(req, timeout=20) as response:
-        res_data = json.loads(response.read().decode("utf-8"))
-    raw = json.loads(res_data["candidates"][0]["content"]["parts"][0]["text"])
+    import urllib.error
+    import time
+    res_data = None
+    for attempt in range(2):  # one retry for transient 429/5xx
+        try:
+            with urllib.request.urlopen(req, timeout=25) as response:
+                res_data = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8")[:300]
+            except Exception:
+                pass
+            print(f"[Classifier] Gemini HTTP {e.code}: {body}")
+            if e.code in (429, 500, 502, 503, 504) and attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise
+    text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    raw = json.loads(text)
+    if isinstance(raw, list) and raw:
+        raw = raw[0]
 
     category = raw.get("category")
     if category not in CATEGORIES:
@@ -202,35 +224,52 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
 
 
 KEYWORDS = {
-    "Plastic Waste": ["plastic", "bottle", "pet", "bag", "polythene", "wrapper", "cup", "pouch"],
-    "Construction & Demolition Debris": ["debris", "construction", "concrete", "brick", "rubble", "demolition", "cement", "sand", "c&d"],
-    "Organic / Biodegradable Waste": ["organic", "food", "vegetable", "fruit", "market", "leaf", "leaves", "rotting", "wet waste", "kitchen"],
-    "Electronic Waste (E-Waste)": ["ewaste", "e-waste", "circuit", "computer", "battery", "phone", "wire", "screen", "electronic"],
-    "Hazardous / Medical Waste": ["chemical", "medical", "hospital", "syringe", "hazard", "toxic", "oil", "drum", "pharma"],
-    "Mixed Municipal Solid Waste": ["dump", "heap", "overflow", "garbage", "bin", "roadside", "mixed", "black bag", "smelly"],
+    "Plastic Waste": ["plastic", "bottle", "pet", "bag", "polythene", "wrapper", "cup", "pouch", "packaging", "thermocol", "styrofoam", "sachet"],
+    "Construction & Demolition Debris": ["debris", "construction", "concrete", "brick", "rubble", "demolition", "cement", "sand", "c&d", "tiles", "excavation", "building material"],
+    "Organic / Biodegradable Waste": ["organic", "food", "vegetable", "fruit", "market", "leaf", "leaves", "rotting", "wet waste", "kitchen", "coconut", "banana", "flower", "garden waste"],
+    "Electronic Waste (E-Waste)": ["ewaste", "e-waste", "e waste", "circuit", "computer", "battery", "batteries", "phone", "wire", "wiring", "screen", "electronic",
+                                    "printer", "monitor", "laptop", "keyboard", "cpu", "tv", "television", "fridge", "refrigerator", "appliance", "ac unit", "scrap electronics", "cable", "charger", "inverter"],
+    "Hazardous / Medical Waste": ["chemical", "medical", "hospital", "syringe", "needle", "hazard", "hazardous", "toxic", "oil", "drum", "pharma", "biomedical", "bio-medical", "bandage", "blood", "asbestos", "paint", "acid"],
+    "Mixed Municipal Solid Waste": ["dump", "heap", "overflow", "garbage", "bin", "roadside", "mixed", "black bag", "smelly", "trash", "rubbish", "litter"],
 }
+
+
+def _count_hits(text: str, keywords) -> int:
+    """Whole-word matching (allows a plural 's'), so 'pet' doesn't match 'carpet' or 'bin' match 'binding'."""
+    n = 0
+    for k in keywords:
+        if re.search(r"(?<![a-z0-9])" + re.escape(k) + r"s?(?![a-z0-9])", text):
+            n += 1
+    return n
 
 
 def _local_keyword_inference(filename: str, description: str) -> Dict[str, Any]:
     """
     OFFLINE DEMO FALLBACK. Counts keyword hits in filename + description. It does not analyse the image,
     so confidence is deliberately low and the result is flagged is_demo_heuristic=True.
+    If nothing matches, needs_manual_category=True is set so the UI can ask the person to pick a category.
     """
-    text = f"{filename} {description}".lower()
-    hits = {cat: sum(1 for k in kws if k in text) for cat, kws in KEYWORDS.items()}
+    text = re.sub(r"[_\-.]+", " ", f"{filename} {description}".lower())
+    text = f" {text} "
+    hits = {cat: _count_hits(text, kws) for cat, kws in KEYWORDS.items()}
     best, n = max(hits.items(), key=lambda kv: kv[1])
+    needs_manual = False
 
     if n == 0:
         best, confidence = "Mixed Municipal Solid Waste", 0.30
-        note = "No keywords found in the description. Defaulted to mixed waste; please choose the category yourself."
+        needs_manual = True
+        note = ("The photo was NOT analysed (no GEMINI_API_KEY is configured on the server) and no keywords were found "
+                "in the description. Please choose the waste category yourself.")
     else:
         confidence = min(0.70, 0.45 + 0.08 * n)
         note = "Guessed from the words in your description/filename, not from the photo."
 
     meta = CATEGORY_KNOWLEDGE[best]
     vol, wt = TYPICAL_SIZE[best]
-    return _build_result(
+    result = _build_result(
         best, confidence, meta["severity"], f"{vol} (typical)", wt,
         None, None, "", "",
         model="Keyword heuristic (demo fallback, no image analysis)", demo=True, note=note
     )
+    result["needs_manual_category"] = needs_manual
+    return result
