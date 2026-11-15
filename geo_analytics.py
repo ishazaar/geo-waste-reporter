@@ -8,6 +8,7 @@ Geo-Analytics Engine for Geo-Waste Reporter
 - 2-Opt Traveling Salesperson Problem (TSP) Route Optimization
 """
 
+from datetime import datetime, timedelta, timezone
 import math
 import json
 import time
@@ -630,3 +631,122 @@ def lookup_ward_and_address(lat: float, lon: float, wards_geojson_path: str = No
         "longitude": round(lon, 6)
     }
 
+
+
+# ---------------------------------------------------------------------------------------------
+# Repeat-dump ("gets dirty again") analysis
+# ---------------------------------------------------------------------------------------------
+def _parse_dt(value):
+    try:
+        dt = datetime.fromisoformat(value)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def find_repeat_dump_sites(reports: list, radius_m: float = 50.0, now=None) -> dict:
+    """
+    Finds places that were cleaned and then got dumped on again.
+      1. Reports within `radius_m` of each other are treated as the SAME spot.
+      2. A "relapse" = a report filed AFTER an earlier report at that spot had been cleared.
+      3. Each repeat spot gets a risk score and a prediction of when it will be dirty again,
+         based on its own average clean-to-re-dump gap.
+    """
+    now = now or datetime.now(timezone.utc)
+    pts = [r for r in reports if r.get("latitude") is not None and r.get("longitude") is not None
+           and _parse_dt(r.get("reported_at"))]
+    n = len(pts)
+
+    # union-find grouping of reports into spots
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if haversine_distance(pts[i]["latitude"], pts[i]["longitude"],
+                                  pts[j]["latitude"], pts[j]["longitude"]) <= radius_m:
+                parent[find(i)] = find(j)
+
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(pts[i])
+
+    sites = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members.sort(key=lambda r: _parse_dt(r["reported_at"]))
+        gaps = []          # days between a clean-up and the next dump at the same spot
+        last_cleared = None
+        relapse_dates = []
+        for r in members:
+            rep_dt = _parse_dt(r["reported_at"])
+            if last_cleared is not None and rep_dt > last_cleared:
+                gaps.append((rep_dt - last_cleared).total_seconds() / 86400.0)
+                relapse_dates.append(rep_dt)
+            clr = _parse_dt(r.get("cleared_at")) if r.get("status") == "Cleared" else None
+            if clr and (last_cleared is None or clr > last_cleared):
+                last_cleared = clr
+        if not gaps:
+            continue   # never re-dumped after a clean-up, so not a repeat spot
+
+        cleanups = sum(1 for r in members if r.get("status") == "Cleared")
+        open_now = [r for r in members if r.get("status") != "Cleared"]
+        avg_gap = sum(gaps) / len(gaps)
+        days_since_relapse = (now - relapse_dates[-1]).total_seconds() / 86400.0
+
+        score = min(60, len(gaps) * 20)
+        score += 15 if days_since_relapse <= 30 else 0
+        score += 10 if open_now else 0
+        score += 15 if avg_gap <= 14 else 8 if avg_gap <= 30 else 0
+        score = min(100, score)
+        level = "Chronic" if score >= 70 else "Recurring" if score >= 45 else "Watch"
+
+        clat = sum(r["latitude"] for r in members) / len(members)
+        clon = sum(r["longitude"] for r in members) / len(members)
+        latest = members[-1]
+        cats = {}
+        for r in members:
+            cats[r.get("category")] = cats.get(r.get("category"), 0) + 1
+
+        if open_now:
+            predicted_iso, days_until = None, None
+            prediction = f"Dirty again right now (re-dumped {round(days_since_relapse)} day{"s" if round(days_since_relapse) != 1 else ""} ago, after the last clean-up)."
+        else:
+            due = last_cleared + timedelta(days=avg_gap)
+            days_until = round((due - now).total_seconds() / 86400.0)
+            predicted_iso = due.isoformat()
+            if days_until > 0:
+                prediction = f"Expected to be dirty again in about {days_until} day{'s' if days_until != 1 else ''} (usual gap: {round(avg_gap)} days)."
+            else:
+                prediction = f"Overdue: it usually gets dirty again about {round(avg_gap)} days after clean-up. Check it now."
+
+        sites.append({
+            "site_id": f"RS-{len(sites) + 1}",
+            "latitude": round(clat, 6), "longitude": round(clon, 6),
+            "name": (members[0].get("title") or members[0].get("address") or "Repeat dump spot"),
+            "ward_name": latest.get("ward_name"),
+            "primary_category": max(cats, key=cats.get),
+            "total_reports": len(members), "cleanups": cleanups, "relapses": len(gaps),
+            "avg_days_until_dirty_again": round(avg_gap, 1),
+            "currently_dirty": bool(open_now),
+            "last_cleared_at": last_cleared.isoformat() if last_cleared else None,
+            "predicted_next_dump": predicted_iso, "days_until_next": days_until,
+            "prediction": prediction,
+            "risk_score": score, "level": level,
+            "recommendation": ("Permanent fix needed: fencing/CCTV, a bin or collection point, and fines for dumping. "
+                               "Repeated clean-ups alone are not working here.") if level == "Chronic" else
+                              "Schedule regular patrols and a bin or signage here.",
+            "report_ids": [r["id"] for r in members],
+        })
+
+    sites.sort(key=lambda x: (-x["risk_score"], -x["relapses"]))
+    for i, st in enumerate(sites, 1):
+        st["site_id"] = f"RS-{i}"
+    return {"sites": sites, "summary": {"count": len(sites), "total_relapses": sum(x["relapses"] for x in sites),
+                                        "dirty_now": sum(1 for x in sites if x["currently_dirty"])}}

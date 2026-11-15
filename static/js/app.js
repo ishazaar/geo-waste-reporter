@@ -226,7 +226,7 @@ async function triggerReseed() {
     if (data.success) {
       showToast('Database successfully reseeded!', 'success');
       await fetchReports();
-      if (window.MainMap && typeof refreshHotspots === 'function') refreshHotspots();
+      if (window.MainMap && typeof refreshHotspots === 'function') { refreshHotspots(); if (typeof refreshRepeatSites === 'function') refreshRepeatSites(); }
       if (window.AnalyticsManager) window.AnalyticsManager.render();
     }
   } catch (err) {

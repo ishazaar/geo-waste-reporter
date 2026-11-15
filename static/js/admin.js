@@ -181,7 +181,7 @@ async function submitAdminUpdate() {
       showToast(`Report ${reportId} marked as ${newStatus}!`, 'success');
       closeAdminModal();
       await fetchReports();
-      if (window.MainMap && typeof refreshHotspots === 'function') refreshHotspots();
+      if (window.MainMap && typeof refreshHotspots === 'function') { refreshHotspots(); if (typeof refreshRepeatSites === 'function') refreshRepeatSites(); }
     } else {
       showToast(data.error || 'Failed to update status', 'error');
     }

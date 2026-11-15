@@ -8,6 +8,7 @@ const MapLayers = {
   markerGroup: null,
   heatLayer: null,
   clusterGroup: null,
+  repeatGroup: null,
   wardGeoJsonLayer: null,
   userLocationMarker: null,
   userAccuracyCircle: null,
@@ -69,9 +70,11 @@ function initMainMap() {
 
   MapLayers.markerGroup = L.layerGroup().addTo(window.MainMap);
   MapLayers.clusterGroup = L.layerGroup().addTo(window.MainMap);
+  MapLayers.repeatGroup = L.layerGroup().addTo(window.MainMap);
 
   loadWardBoundaries();
   refreshHotspots();
+  refreshRepeatSites();
   setupMapControls();
 
   // Try auto-locating user on map start
@@ -189,6 +192,14 @@ function setupMapControls() {
         if (e.target.checked) window.MainMap.addLayer(MapLayers.heatLayer);
         else window.MainMap.removeLayer(MapLayers.heatLayer);
       }
+    });
+  }
+
+  const toggleRepeat = document.getElementById('toggle-repeat');
+  if (toggleRepeat) {
+    toggleRepeat.addEventListener('change', (e) => {
+      if (e.target.checked) window.MainMap.addLayer(MapLayers.repeatGroup);
+      else window.MainMap.removeLayer(MapLayers.repeatGroup);
     });
   }
 
@@ -403,6 +414,73 @@ async function handleUpvote(reportId) {
 }
 
 // Load and Render Heatmap & DBSCAN Hotspots
+// Places that get dirty again after being cleaned (with prediction)
+async function refreshRepeatSites() {
+  try {
+    const res = await fetch('/api/repeat-sites');
+    const data = await res.json();
+    if (!data.success || !MapLayers.repeatGroup) return;
+
+    MapLayers.repeatGroup.clearLayers();
+    const list = document.getElementById('repeat-sites-list');
+    const count = document.getElementById('repeat-sites-count');
+    if (list) list.innerHTML = '';
+    if (count) count.textContent = `${data.summary.count} spots`;
+    if (list && !data.sites.length) {
+      list.innerHTML = '<div class="p-3 bg-slate-50 rounded-2xl text-center text-xs text-slate-400">No spot has been dumped on again after a clean-up yet.</div>';
+    }
+
+    data.sites.forEach((site, idx) => {
+      const lvl = site.level.toLowerCase();
+      const color = lvl === 'chronic' ? '#7f1d1d' : lvl === 'recurring' ? '#c2410c' : '#b45309';
+      L.circle([site.latitude, site.longitude], {
+        radius: 60, color, weight: 2, dashArray: '4 4', fillColor: color, fillOpacity: 0.12, interactive: false
+      }).addTo(MapLayers.repeatGroup);
+
+      const icon = L.divIcon({
+        html: `<div class="repeat-badge ${lvl}">&#8635;${site.relapses}</div>`,
+        className: '', iconSize: [34, 34], iconAnchor: [17, 17]
+      });
+      L.marker([site.latitude, site.longitude], { icon, zIndexOffset: 800 })
+        .bindPopup(repeatSitePopup(site), { maxWidth: 290 })
+        .addTo(MapLayers.repeatGroup);
+
+      if (list) {
+        const item = document.createElement('div');
+        item.className = 'p-3 bg-white rounded-2xl border border-red-100 hover:border-red-400 hover:shadow-md transition-all cursor-pointer shadow-xs';
+        item.innerHTML = `
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] font-extrabold px-2 py-0.5 rounded-full border" style="color:${color};border-color:${color}55;background:${color}12">${esc(site.level)}</span>
+            <span class="text-[11px] font-bold text-slate-600">Dirty again ${site.relapses}x</span>
+          </div>
+          <h5 class="text-sm font-bold text-slate-900 leading-snug">${esc(site.name)}</h5>
+          <p class="text-[11px] text-slate-500 mt-0.5">${esc(site.prediction)}</p>`;
+        item.addEventListener('click', () => {
+          window.MainMap.setView([site.latitude, site.longitude], 17, { animate: true });
+          L.popup({ maxWidth: 290 }).setLatLng([site.latitude, site.longitude]).setContent(repeatSitePopup(site)).openOn(window.MainMap);
+        });
+        list.appendChild(item);
+      }
+    });
+  } catch (err) {
+    console.error('Failed to load repeat-dump sites:', err);
+  }
+}
+
+function repeatSitePopup(site) {
+  return `
+    <div style="font-family:inherit">
+      <div style="font-size:10px;font-weight:800;color:#7f1d1d;text-transform:uppercase;letter-spacing:.05em">${esc(site.level)} repeat-dump spot</div>
+      <div style="font-size:14px;font-weight:800;margin:2px 0 6px">${esc(site.name)}</div>
+      <div style="font-size:12px;line-height:1.5">
+        Cleaned <b>${site.cleanups}</b> time${site.cleanups === 1 ? '' : 's'}, dirty again <b>${site.relapses}</b> time${site.relapses === 1 ? '' : 's'}.<br>
+        Usually dirty again about <b>${Math.round(site.avg_days_until_dirty_again)} days</b> after a clean-up.<br>
+        <span style="color:#b91c1c;font-weight:700">${esc(site.prediction)}</span>
+      </div>
+      <div style="font-size:11px;color:#475569;margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px">${esc(site.recommendation)}</div>
+    </div>`;
+}
+
 async function refreshHotspots() {
   try {
     const res = await fetch('/api/hotspots');

@@ -37,7 +37,7 @@ from database import (
 from geo_analytics import (
     haversine_distance, calculate_priority_score, check_for_duplicate,
     run_dbscan_clustering, optimize_cleanup_route, SENSITIVE_RECEPTORS,
-    nearby_receptors, receptor_from_report,
+    nearby_receptors, receptor_from_report, find_repeat_dump_sites,
     MUNICIPAL_DEPOTS, lookup_ward_and_address
 )
 from ai_classifier import classify_waste_image, sniff_mime, CATEGORIES
@@ -465,6 +465,13 @@ def hotspots_endpoint():
         heatmap_points.append([float(r["latitude"]), float(r["longitude"]), intensity])
 
     return jsonify({"success": True, **clustering_res, "heatmap_points": heatmap_points})
+
+
+@app.route("/api/repeat-sites", methods=["GET"])
+def repeat_sites_endpoint():
+    """Places that get dirty again after being cleaned, with a prediction of the next relapse."""
+    radius = parse_float(request.args.get("radius_m"), "radius_m", 10, 500, default=50.0)
+    return jsonify({"success": True, **find_repeat_dump_sites(get_all_reports(), radius_m=radius)})
 
 
 @app.route("/api/wards", methods=["GET"])
