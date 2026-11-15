@@ -593,8 +593,17 @@ function setupReportForm() {
         if (placeholder) placeholder.classList.remove('hidden');
         if (aiBox) aiBox.classList.add('hidden');
 
+        const newReport = data.report;
         await fetchReports();
+        // On serverless hosting a different server instance may answer the list request,
+        // so make sure the report we just created is always shown.
+        if (newReport && !AppState.reports.some(r => r.id === newReport.id)) {
+          AppState.reports.push(newReport);
+          updateHeaderKPIs();
+        }
         switchTab('map-view');
+        if (typeof renderMarkers === 'function') renderMarkers(AppState.reports);
+        if (newReport && typeof focusReportOnMap === 'function') focusReportOnMap(newReport);
       } else {
         showToast(data.error || 'Failed to submit report', 'error');
       }

@@ -191,5 +191,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (depotSel) depotSel.addEventListener('change', () => RouteOptimizer.loadRoute());
 
   const clusterSel = document.getElementById('route-cluster-select');
-  if (clusterSel) clusterSel.addEventListener('change', () => RouteOptimizer.loadRoute());
+  if (clusterSel) {
+    clusterSel.addEventListener('change', () => RouteOptimizer.loadRoute());
+    // Replace the static option list with the live DBSCAN hotspots, ranked by dumping index
+    fetch('/api/hotspots').then(r => r.json()).then(d => {
+      if (!d.success) return;
+      const ranked = (d.ranked_hotspots && d.ranked_hotspots.length) ? d.ranked_hotspots : d.clusters;
+      clusterSel.innerHTML = '<option value="">Top Priority City-Wide</option>' +
+        ranked.map((c, i) => `<option value="${c.cluster_id}">#${i + 1} ${String(c.primary_ward || c.name).replace(/</g, '&lt;')} (index ${c.dumping_index})</option>`).join('');
+    }).catch(() => {});
+  }
 });

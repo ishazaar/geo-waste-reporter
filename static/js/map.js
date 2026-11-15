@@ -263,6 +263,7 @@ function createCustomPin(status, priorityLevel) {
 function renderMarkers(reports) {
   if (!MapLayers.markerGroup) return;
   MapLayers.markerGroup.clearLayers();
+  MapLayers.markersById = {};
 
   reports.forEach(report => {
     if (!report.latitude || !report.longitude) return;
@@ -276,7 +277,19 @@ function renderMarkers(reports) {
     });
 
     MapLayers.markerGroup.addLayer(marker);
+    MapLayers.markersById[report.id] = marker;
   });
+}
+
+// Pan/zoom to a report and open its popup (used right after submitting a new report)
+function focusReportOnMap(report) {
+  if (!window.MainMap || !report) return;
+  setTimeout(() => {
+    window.MainMap.invalidateSize();
+    window.MainMap.setView([report.latitude, report.longitude], 16, { animate: true });
+    const m = MapLayers.markersById && MapLayers.markersById[report.id];
+    if (m) m.openPopup();
+  }, 300);
 }
 
 // Generate Rich Popup HTML
@@ -421,6 +434,7 @@ async function refreshHotspots() {
     const rankedHotspotsContainer = document.getElementById('ranked-hotspots-list');
     if (rankedHotspotsContainer) rankedHotspotsContainer.innerHTML = '';
 
+    const rankedList = (data.ranked_hotspots && data.ranked_hotspots.length) ? data.ranked_hotspots : data.clusters;
     data.clusters.forEach((cluster, idx) => {
       const circle = L.circle([cluster.center.lat, cluster.center.lon], {
         radius: cluster.radius_m + 30,
@@ -443,6 +457,7 @@ async function refreshHotspots() {
 
       // Populate Top Hotspots Sidebar List
       if (rankedHotspotsContainer && idx < 6) {
+        const cluster = rankedList[idx];
         const item = document.createElement('div');
         item.className = 'p-3 bg-white/95 rounded-2xl border border-slate-200/90 hover:border-rose-400 hover:shadow-md transition-all cursor-pointer shadow-xs';
         item.innerHTML = `
