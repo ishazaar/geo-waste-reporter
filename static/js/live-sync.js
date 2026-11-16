@@ -1,13 +1,13 @@
 /*
  * Live sync for the PUBLIC site: when an admin (or another citizen) changes a report, show a small
  * "Updates available - Refresh" bar so visitors see it without guessing to reload.
- * Polls /api/reports every 12 s while the tab is visible. It never reloads by itself, so a half-filled
+ * Polls /api/reports every 20 s while the tab is visible. It never reloads by itself, so a half-filled
  * report form is never lost.
  */
 (function () {
   'use strict';
   if (location.pathname.indexOf('/admin') === 0) return;          // the admin page has its own refresh
-  const EVERY_MS = 12000;
+  const EVERY_MS = 20000;
   let baseline = null, banner = null, busy = false;
 
   function fingerprint(list) {

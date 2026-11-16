@@ -48,6 +48,9 @@
   #modal .card { max-width:440px; }
   label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
   .row { display:flex; gap:10px; margin-top:16px; justify-content:flex-end; }
+  #storage { padding:10px 14px; border-radius:10px; font-size:14px; margin-bottom:14px; border:1px solid; }
+  #storage.ok { background:#dcfce7; border-color:#86efac; color:#166534; }
+  #storage.bad { background:#fee2e2; border-color:#fca5a5; color:#991b1b; }
   #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--dk); color:#fff; padding:10px 18px; border-radius:8px; font-size:14px; z-index:50; }
 </style>
 </head>
@@ -71,6 +74,7 @@
     <div><a href="/">Public site</a><button id="logoutBtn">Log out</button></div>
   </header>
   <main>
+    <div id="storage" class="hidden"></div>
     <div class="stats" id="stats"></div>
     <div class="tools">
       <select id="statusFilter"><option value="">All statuses</option><option>Reported</option><option>In Progress</option><option>Cleared</option></select>
@@ -116,7 +120,20 @@
     $('app').classList.add('hidden'); $('modal').classList.add('hidden'); $('login').classList.remove('hidden');
     $('loginErr').textContent = msg || ''; $('token').value = ''; $('token').focus();
   }
-  function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); loadReports(); }
+  function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); loadReports(); checkStorage(); }
+
+  async function checkStorage() {
+    const box = $('storage');
+    try {
+      const h = await (await fetch('/api/health', { cache: 'no-store' })).json();
+      let ok = false, msg;
+      if (h.durable_storage === undefined) msg = 'Permanent storage is NOT installed on the server yet. Reports and admin changes can disappear or differ between visitors. Deploy the storage update.';
+      else if (!h.durable_storage) msg = 'Permanent storage is OFF. On Vercel, reports and admin changes are lost on restart and can differ between visitors. In Vercel open Storage, create a Redis (Upstash) database and connect it to this project, then redeploy.';
+      else if (h.last_error) msg = 'Permanent storage (' + h.storage_backend + ') has an error: ' + h.last_error;
+      else { ok = true; msg = 'Permanent storage is ON (' + h.storage_backend + '). Changes are saved and shared.'; }
+      box.textContent = msg; box.className = ok ? 'ok' : 'bad';
+    } catch (e) { box.className = 'hidden'; }
+  }
 
   async function api(path, opts) {
     opts = opts || {}; opts.headers = Object.assign({ 'X-Admin-Token': token() }, opts.headers || {});
@@ -206,7 +223,7 @@
 
   // Keep the table current: refresh every 20 s while the dashboard is open and no update window is showing.
   setInterval(function () {
-    if (!$('app').classList.contains('hidden') && $('modal').classList.contains('hidden') && !document.hidden) loadReports();
+    if (!$('app').classList.contains('hidden') && $('modal').classList.contains('hidden') && !document.hidden) { loadReports(); checkStorage(); }
   }, 10000);
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && !$('app').classList.contains('hidden')) loadReports();

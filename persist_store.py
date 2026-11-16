@@ -5,6 +5,9 @@ Vercel's disk is temporary: every cold start gives the app an empty disk, so the
 re-seeded (losing new reports and admin updates) and uploaded photos vanished. This module keeps both somewhere
 permanent. Pick ONE backend with environment variables:
 
+  Redis (easiest on Vercel: Storage tab -> Create Database -> Upstash Redis -> Connect to project)
+      KV_REST_API_URL + KV_REST_API_TOKEN  (or UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN), added automatically
+
   GitHub (no new account needed)
       GITHUB_TOKEN       fine-grained token with "Contents: Read and write" on ONE private repo
       GITHUB_DATA_REPO   "your-username/geo-waste-data"
@@ -29,9 +32,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import zlib
 
 TIMEOUT_S = 12
-CHECK_EVERY_S = 1.5
+CHECK_EVERY_S = 3
 _state = {"version": None, "checked": 0.0, "error": None}
 _WRITE_PATH = re.compile(r"^/api/(reports(/[^/]+/(status|upvote))?|seed)/?$")
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9_.\-]{1,120}$")
@@ -113,6 +117,47 @@ class GitHubBackend:
             raise
 
 
+# =================================================================== Redis backend (Upstash / Vercel Storage)
+class RedisBackend:
+    """Database (compressed) and photos live as keys in a Redis database reached over HTTPS."""
+    name = "redis"
+
+    def __init__(self):
+        e = os.environ
+        self.url = (e.get("KV_REST_API_URL") or e.get("UPSTASH_REDIS_REST_URL") or "").strip().rstrip("/")
+        self.token = (e.get("KV_REST_API_TOKEN") or e.get("UPSTASH_REDIS_REST_TOKEN") or "").strip()
+
+    def _cmd(self, *args):
+        req = urllib.request.Request(self.url, data=json.dumps(list(args)).encode(), method="POST",
+                                     headers={"Authorization": "Bearer " + self.token, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            res = json.loads(r.read())
+        if res.get("error"):
+            raise RuntimeError(str(res["error"])[:120])
+        return res.get("result")
+
+    def version(self):
+        return self._cmd("GET", "gwr:db:ver")
+
+    def get_db(self):
+        v = self._cmd("GET", "gwr:db")
+        return zlib.decompress(base64.b64decode(v)) if v else None
+
+    def put_db(self, data):
+        self._cmd("SET", "gwr:db", base64.b64encode(zlib.compress(data, 6)).decode())
+        ver = uuid.uuid4().hex
+        self._cmd("SET", "gwr:db:ver", ver)
+        return ver
+
+    def put_photo(self, name, data, mime):
+        self._cmd("SET", "gwr:photo:" + name, base64.b64encode(data).decode())
+        return "/uploads/" + name            # served by the app itself
+
+    def get_photo(self, name):
+        v = self._cmd("GET", "gwr:photo:" + name)
+        return base64.b64decode(v) if v else None
+
+
 # =================================================================== Supabase backend
 class SupabaseBackend:
     name = "supabase"
@@ -170,6 +215,8 @@ def _backend():
     e = os.environ
     if e.get("GITHUB_TOKEN") and e.get("GITHUB_DATA_REPO"):
         return GitHubBackend()
+    if (e.get("KV_REST_API_URL") and e.get("KV_REST_API_TOKEN")) or (e.get("UPSTASH_REDIS_REST_URL") and e.get("UPSTASH_REDIS_REST_TOKEN")):
+        return RedisBackend()
     if e.get("SUPABASE_URL") and (e.get("SUPABASE_SERVICE_KEY") or e.get("SUPABASE_SERVICE_ROLE_KEY")):
         return SupabaseBackend()
     return None
