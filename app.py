@@ -615,6 +615,13 @@ def geocode_place():
     return jsonify({"success": True, "results": results})
 
 
+@app.route("/api/admin/check", methods=["POST"])
+@require_admin
+def admin_check():
+    """Used by the browser to verify the admin token before opening any admin panel."""
+    return jsonify({"success": True})
+
+
 @app.route("/api/health", methods=["GET"])
 def health():
     """Setup check: shows whether env vars reached the server (never reveals their values)."""
