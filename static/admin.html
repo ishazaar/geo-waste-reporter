@@ -140,7 +140,7 @@
   }
 
   async function loadReports() {
-    $('rows').innerHTML = '<tr><td colspan="9" class="muted">Loading...</td></tr>';
+    if (!reports.length) $('rows').innerHTML = '<tr><td colspan="9" class="muted">Loading...</td></tr>';
     try {
       const res = await fetch('/api/reports'); const data = await res.json();
       reports = data.reports || []; render();
@@ -203,6 +203,11 @@
   $('rows').addEventListener('click', e => { const b = e.target.closest('button[data-id]'); if (b) openModal(b.dataset.id); });
   $('mCancel').addEventListener('click', () => $('modal').classList.add('hidden'));
   $('mSave').addEventListener('click', save);
+
+  // Keep the table current: refresh every 20 s while the dashboard is open and no update window is showing.
+  setInterval(function () {
+    if (!$('app').classList.contains('hidden') && $('modal').classList.contains('hidden') && !document.hidden) loadReports();
+  }, 20000);
 
   // Re-verify any saved token with the server on load; otherwise show the login box.
   (async function init() {
