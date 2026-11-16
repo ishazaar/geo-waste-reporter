@@ -2,7 +2,7 @@
 Waste Classifier
 Two modes:
 1. Google Gemini vision (real image analysis) - used only when the GEMINI_API_KEY environment
-   variable is set on the SERVER. Model is configurable with GEMINI_MODEL.
+   variable is set on the SERVER. Model is configurable with GEMINI_MODEL (otherwise current Gemini models are tried automatically).
 2. Keyword heuristic fallback (offline demo). It reads the filename + description text ONLY and does
    NOT look at image pixels. It reports low confidence and is flagged with is_demo_heuristic=True so the
    UI never presents it as computer vision.
@@ -146,12 +146,14 @@ def _build_result(category: str, confidence: float, severity: int, volume: str, 
     }
 
 
+# Tried in order if GEMINI_MODEL is unset or its name has been retired (Google answers HTTP 404).
+GEMINI_MODEL_FALLBACKS = ("gemini-3.5-flash", "gemini-flash-latest", "gemini-3.6-flash", "gemini-3.1-flash-lite")
+_WORKING_MODEL: Dict[str, str] = {}
+
+
 def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str, Any]:
     """Calls the Gemini vision API. The key is sent in a header (not the URL) so it never ends up in logs."""
     import urllib.request
-
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     prompt = (
         "Analyze this urban waste dumping photo. Return ONLY JSON with these exact keys:\n"
@@ -168,30 +170,54 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
         ]}],
         "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
     }
-    req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST"
-    )
     import urllib.error
     import time
-    res_data = None
-    for attempt in range(2):  # one retry for transient 429/5xx
+
+    def _post(model_name: str) -> Dict[str, Any]:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key}, method="POST"
+        )
+        for attempt in range(2):  # one retry for transient 429/5xx
+            try:
+                with urllib.request.urlopen(req, timeout=25) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                body = ""
+                try:
+                    body = e.read().decode("utf-8")[:300]
+                except Exception:
+                    pass
+                print(f"[Classifier] Gemini HTTP {e.code} for model {model_name}: {body}")
+                if e.code in (429, 500, 502, 503, 504) and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                raise
+
+    # Google retires model names over time (HTTP 404). Try the configured model first, then current ones,
+    # and remember whichever works so later requests go straight to it.
+    candidates = []
+    for m in (_WORKING_MODEL.get("name"), os.environ.get("GEMINI_MODEL"), *GEMINI_MODEL_FALLBACKS):
+        if m and m not in candidates:
+            candidates.append(m)
+    res_data, model, last_err = None, None, None
+    for m in candidates:
         try:
-            with urllib.request.urlopen(req, timeout=25) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
+            res_data, model = _post(m), m
+            _WORKING_MODEL["name"] = m
             break
         except urllib.error.HTTPError as e:
-            body = ""
-            try:
-                body = e.read().decode("utf-8")[:300]
-            except Exception:
-                pass
-            print(f"[Classifier] Gemini HTTP {e.code}: {body}")
-            if e.code in (429, 500, 502, 503, 504) and attempt == 0:
-                time.sleep(1.5)
+            last_err = e
+            if e.code in (404, 400):   # unknown / retired model name -> try the next one
                 continue
             raise
-    text = res_data["candidates"][0]["content"]["parts"][0]["text"]
+    if res_data is None:
+        raise last_err
+    parts = res_data["candidates"][0]["content"]["parts"]
+    text = next((p_["text"] for p_ in parts if p_.get("text") and not p_.get("thought")), None)
+    if text is None:
+        raise ValueError("Gemini returned no text")
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     raw = json.loads(text)
     if isinstance(raw, list) and raw:
