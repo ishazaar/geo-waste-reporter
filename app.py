@@ -21,6 +21,9 @@ import uuid
 import hmac
 import base64
 import hashlib
+import time
+import urllib.parse
+import urllib.request
 import secrets
 from datetime import datetime, timezone
 from functools import wraps
@@ -465,6 +468,61 @@ def hotspots_endpoint():
         heatmap_points.append([float(r["latitude"]), float(r["longitude"]), intensity])
 
     return jsonify({"success": True, **clustering_res, "heatmap_points": heatmap_points})
+
+
+_GEOCODE_CACHE = {}
+
+
+def _http_json(url: str, timeout: float = 6.0):
+    req = urllib.request.Request(url, headers={"User-Agent": "geo-waste-reporter/1.0 (student project)",
+                                               "Accept-Language": "en"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _geocode_bengaluru(q: str):
+    min_lat, max_lat, min_lon, max_lon = BLR_BOUNDS
+    results = []
+    try:   # 1) Nominatim, restricted to the Bengaluru box
+        qs = urllib.parse.urlencode({"q": q, "format": "jsonv2", "limit": 6, "countrycodes": "in",
+                                     "viewbox": f"{min_lon},{max_lat},{max_lon},{min_lat}", "bounded": 1})
+        for it in _http_json("https://nominatim.openstreetmap.org/search?" + qs):
+            full = it.get("display_name", "")
+            results.append({"name": it.get("name") or full.split(",")[0], "display": full,
+                            "lat": float(it["lat"]), "lon": float(it["lon"])})
+    except Exception:
+        results = []
+    if not results:
+        try:   # 2) Photon fallback
+            qs = urllib.parse.urlencode({"q": q, "limit": 6, "lat": 12.9716, "lon": 77.5946,
+                                         "bbox": f"{min_lon},{min_lat},{max_lon},{max_lat}"})
+            for f in _http_json("https://photon.komoot.io/api/?" + qs).get("features", []):
+                pr, (lon, lat) = f.get("properties", {}), f["geometry"]["coordinates"]
+                name = pr.get("name") or pr.get("street") or q
+                parts = [name, pr.get("district") or pr.get("locality"), pr.get("city"), pr.get("postcode")]
+                results.append({"name": name, "display": ", ".join(x for x in parts if x),
+                                "lat": float(lat), "lon": float(lon)})
+        except Exception:
+            pass
+    return [r for r in results if min_lat <= r["lat"] <= max_lat and min_lon <= r["lon"] <= max_lon]
+
+
+@app.route("/api/geocode", methods=["GET"])
+def geocode_place():
+    """Place search for the report map (Bengaluru only). Cached to stay polite to the free OSM services."""
+    q = (request.args.get("q") or "").strip()[:100]
+    if len(q) < 3:
+        raise ApiError("Type at least 3 letters to search")
+    key = q.lower()
+    hit = _GEOCODE_CACHE.get(key)
+    if hit and time.time() - hit[0] < 6 * 3600:
+        return jsonify({"success": True, "results": hit[1]})
+    results = _geocode_bengaluru(q)
+    if results:
+        if len(_GEOCODE_CACHE) > 500:
+            _GEOCODE_CACHE.clear()
+        _GEOCODE_CACHE[key] = (time.time(), results)
+    return jsonify({"success": True, "results": results})
 
 
 @app.route("/api/health", methods=["GET"])

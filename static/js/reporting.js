@@ -638,6 +638,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sevSelect) sevSelect.addEventListener('change', schedulePriorityPreview);
   schedulePriorityPreview();
 
+  setupPlaceSearch();
+
   const gpsBtn = document.getElementById('btn-get-gps');
   if (gpsBtn) gpsBtn.addEventListener('click', triggerRealGPS);
 
@@ -743,4 +745,71 @@ function renderPriorityBox(box, d) {
       <p class="text-[10px] text-slate-400 mt-2">Rings on the map: 150 m / 350 m / 700 m from the pin.</p>
       ${sourceNote}
     </div>`;
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Place search: type a place name (or paste "lat, lon"), pick a result, the pin jumps there
+// ---------------------------------------------------------------------------------------------
+function setupPlaceSearch() {
+  const input = document.getElementById('place-search-input');
+  const btn = document.getElementById('place-search-btn');
+  const box = document.getElementById('place-search-results');
+  if (!input || !btn || !box) return;
+
+  let timer = null, requestId = 0;
+  const hide = () => { box.classList.add('hidden'); box.innerHTML = ''; };
+  const show = (html) => { box.innerHTML = html; box.classList.remove('hidden'); };
+
+  function pickLocation(lat, lon, label) {
+    hide();
+    if (label) input.value = label;
+    setCoordinates(lat, lon, false, null);
+    if (window.PickerMap) window.PickerMap.flyTo([lat, lon], 17, { duration: 1.0 });
+    showToast('Pin moved. Check the priority panel below the map.', 'info');
+  }
+
+  async function runSearch() {
+    const q = input.value.trim();
+    if (q.length < 3) { hide(); return; }
+
+    // "12.9716, 77.5946" style coordinates jump straight there
+    const m = q.match(/^(-?\d{1,2}\.\d+)\s*[,\s]\s*(-?\d{1,3}\.\d+)$/);
+    if (m) { pickLocation(parseFloat(m[1]), parseFloat(m[2]), null); return; }
+
+    const mine = ++requestId;
+    show('<div class="px-3 py-2.5 text-xs text-slate-500">Searching Bengaluru...</div>');
+    try {
+      const res = await fetch('/api/geocode?q=' + encodeURIComponent(q));
+      const data = await res.json();
+      if (mine !== requestId) return;
+      if (!data.success) throw new Error(data.error || 'search failed');
+      if (!data.results.length) {
+        show('<div class="px-3 py-2.5 text-xs text-slate-500">No match in Bengaluru. Try a nearby landmark or a fuller name.</div>');
+        return;
+      }
+      show(data.results.map((r, i) => `
+        <button type="button" data-i="${i}" class="place-result w-full text-left px-3 py-2 hover:bg-emerald-50 border-b border-slate-100 last:border-0">
+          <div class="text-sm font-bold text-slate-900">${esc(r.name)}</div>
+          <div class="text-[11px] text-slate-500 truncate">${esc(r.display)}</div>
+        </button>`).join(''));
+      box.querySelectorAll('.place-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const r = data.results[parseInt(el.dataset.i, 10)];
+          pickLocation(r.lat, r.lon, r.name);
+        });
+      });
+    } catch (err) {
+      if (mine !== requestId) return;
+      show('<div class="px-3 py-2.5 text-xs text-rose-600">Place search is unavailable right now. Click the map to drop the pin instead.</div>');
+    }
+  }
+
+  btn.addEventListener('click', runSearch);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); runSearch(); }
+    if (e.key === 'Escape') hide();
+  });
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 800); });
+  document.addEventListener('click', (e) => { if (!document.getElementById('place-search-wrap')?.contains(e.target)) hide(); });
 }

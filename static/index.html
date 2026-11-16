@@ -327,6 +327,20 @@
                   </div>
                 </div>
 
+                <!-- Place search -->
+                <div class="mb-3 relative" id="place-search-wrap">
+                  <label for="place-search-input" class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">Search a place</label>
+                  <div class="flex items-center space-x-2">
+                    <input id="place-search-input" type="text" autocomplete="off"
+                           placeholder="e.g. Indiranagar metro, Bellandur Lake, or paste 12.97, 77.64"
+                           class="flex-1 text-sm px-3 py-2 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                    <button type="button" id="place-search-btn"
+                            class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs">Search</button>
+                  </div>
+                  <div id="place-search-results"
+                       class="hidden absolute left-0 right-0 mt-1 z-[1000] bg-white border border-slate-200 rounded-xl shadow-lg max-h-64 overflow-y-auto"></div>
+                </div>
+
                 <!-- Quick Location Presets (For fast testing/demo) -->
                 <div class="mb-3">
                   <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
