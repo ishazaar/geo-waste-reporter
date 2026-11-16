@@ -706,6 +706,8 @@ def lookup_ward_and_address(lat: float, lon: float, wards_geojson_path: str = No
     closest_rec = find_closest_receptor(lat, lon)
 
     # Ward fallback if outside precise polygons
+    nearest_ward_km = None
+    outside_mapped_wards = False
     if not matched_ward:
         # Ward centroid estimates
         ward_centroids = [
@@ -722,6 +724,9 @@ def lookup_ward_and_address(lat: float, lon: float, wards_geojson_path: str = No
         ]
         best_w = min(ward_centroids, key=lambda w: haversine_distance(lat, lon, w["lat"], w["lon"]))
         matched_ward = best_w
+        nearest_ward_km = haversine_distance(lat, lon, best_w["lat"], best_w["lon"]) / 1000.0
+        # Only 10 wards are mapped. A point many km from all of them is not really "in" the nearest one.
+        outside_mapped_wards = nearest_ward_km > 8.0
 
     ward_name = matched_ward.get("ward_name", "Bengaluru Urban")
     ward_id = matched_ward.get("ward_id", "WARD-00")
@@ -730,10 +735,14 @@ def lookup_ward_and_address(lat: float, lon: float, wards_geojson_path: str = No
     rec_name = closest_rec["name"] if closest_rec else "Main Road"
     rec_dist = closest_rec["distance_m"] if closest_rec else 500
 
+    area = "Bengaluru" if outside_mapped_wards else f"{ward_name}, Bengaluru"   # don't name a ward that is 15+ km away
     if rec_dist < 200:
-        address = f"Adjacent to {rec_name}, {ward_name}, Bengaluru"
+        address = f"Adjacent to {rec_name}, {area}"
     elif rec_dist < 600:
-        address = f"Near {rec_name} ({round(rec_dist)}m), {ward_name}, Bengaluru"
+        address = f"Near {rec_name} ({round(rec_dist)}m), {area}"
+    elif outside_mapped_wards:
+        address = (f"{round(lat, 4)}, {round(lon, 4)} - Bengaluru (outside the {len(ward_centroids)} mapped wards; "
+                   f"nearest: {ward_name}, {nearest_ward_km:.0f} km)")
     else:
         address = f"Service Road, {ward_name}, Bengaluru"
 
@@ -741,6 +750,8 @@ def lookup_ward_and_address(lat: float, lon: float, wards_geojson_path: str = No
         "ward_id": ward_id,
         "ward_name": ward_name,
         "address": address,
+        "outside_mapped_wards": outside_mapped_wards,
+        "nearest_ward_km": round(nearest_ward_km, 1) if nearest_ward_km is not None else None,
         "closest_receptor": closest_rec,
         "latitude": round(lat, 6),
         "longitude": round(lon, 6)
