@@ -467,6 +467,18 @@ def hotspots_endpoint():
     return jsonify({"success": True, **clustering_res, "heatmap_points": heatmap_points})
 
 
+@app.route("/api/health", methods=["GET"])
+def health():
+    """Setup check: shows whether env vars reached the server (never reveals their values)."""
+    return jsonify({
+        "ok": True,
+        "admin_token_configured": bool(os.environ.get("ADMIN_TOKEN")),
+        "gemini_key_configured": bool(os.environ.get("GEMINI_API_KEY")),
+        "vercel_environment": os.environ.get("VERCEL_ENV"),   # production / preview / development
+        "vercel_deployment": (os.environ.get("VERCEL_URL") or "")[:80] or None,
+    })
+
+
 @app.route("/api/repeat-sites", methods=["GET"])
 def repeat_sites_endpoint():
     """Places that get dirty again after being cleaned, with a prediction of the next relapse."""
