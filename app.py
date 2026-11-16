@@ -47,7 +47,6 @@ from geo_analytics import (
 )
 from ai_classifier import classify_waste_image, sniff_mime, CATEGORIES
 from seed_data import seed_database
-import persist_store
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -192,11 +191,6 @@ def read_image(file_storage):
 def save_image(data, mime, prefix):
     """Saves verified image bytes under a server-generated name with an extension derived from content."""
     name = f"{prefix}_{uuid.uuid4().hex[:12]}{EXT_FOR_MIME[mime]}"
-    if persist_store.enabled():          # permanent storage (the serverless disk is temporary)
-        try:
-            return persist_store.upload_photo(name, data, mime)
-        except Exception as e:
-            print(f"[persist] photo upload failed, using local disk: {type(e).__name__}: {str(e)[:100]}")
     try:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         with open(os.path.join(UPLOAD_DIR, name), "wb") as f:
@@ -222,21 +216,6 @@ def require_admin(fn):
             raise ApiError("Admin authentication required", 401)
         return fn(*args, **kwargs)
     return wrapper
-
-
-@app.before_request
-def _load_latest_database():
-    """If another serverless instance saved newer data, load it before answering."""
-    if request.path.startswith("/api/") and request.path != "/api/health":
-        persist_store.refresh_if_stale()
-
-
-@app.after_request
-def _save_database_after_write(response):
-    """After any successful report / status / upvote / reseed write, save the database to durable storage."""
-    if request.method == "POST" and response.status_code < 400 and persist_store.is_write_path(request.path):
-        persist_store.push()
-    return response
 
 
 @app.after_request
@@ -296,27 +275,10 @@ def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
 
-@app.route("/admin")
-@app.route("/admin/")
-def admin_page():
-    """Separate admin site: shows a login box first; nothing admin-related is on the public page."""
-    resp = send_from_directory(STATIC_DIR, "admin.html")
-    resp.headers["Cache-Control"] = "no-store"
-    return resp
-
-
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
-    """Serves user photos: from the local data dir, else from durable storage (survives serverless restarts)."""
-    if os.path.isfile(os.path.join(UPLOAD_DIR, filename)):
-        return send_from_directory(UPLOAD_DIR, filename)
-    stored = persist_store.get_photo(filename)
-    if stored:
-        data, mime = stored
-        resp = Response(data, mimetype=mime)
-        resp.headers["Cache-Control"] = "public, max-age=31536000, s-maxage=31536000, immutable"
-        return resp
-    return jsonify({"success": False, "error": "Photo not found"}), 404
+    """Serves user photos from the writable data dir (they no longer live inside /static)."""
+    return send_from_directory(UPLOAD_DIR, filename)
 
 
 # ---------------------------------------------------------------- reports
@@ -667,7 +629,6 @@ def health():
         "ok": True,
         "admin_token_configured": bool(os.environ.get("ADMIN_TOKEN")),
         "gemini_key_configured": bool(os.environ.get("GEMINI_API_KEY")),
-        **persist_store.status(),
         "vercel_environment": os.environ.get("VERCEL_ENV"),   # production / preview / development
         "vercel_deployment": (os.environ.get("VERCEL_URL") or "")[:80] or None,
     })
@@ -809,14 +770,9 @@ def export_csv():
 
 # ---------------------------------------------------------------- startup
 try:
-    _db_state = persist_store.pull_on_startup()      # load the shared database BEFORE creating/seeding a new one
     init_db()
     if len(get_all_reports()) == 0:
         seed_database()
-        if _db_state == "missing":                   # first run ever: publish the seeded database
-            persist_store.push()
-    elif _db_state == "missing":
-        persist_store.push()
 except Exception as _db_err:
     print(f"Database auto-init notice: {_db_err}")
 
