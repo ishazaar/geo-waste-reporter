@@ -275,6 +275,15 @@ def index():
     return send_from_directory(STATIC_DIR, "index.html")
 
 
+@app.route("/admin")
+@app.route("/admin/")
+def admin_page():
+    """Separate admin site: shows a login box first; nothing admin-related is on the public page."""
+    resp = send_from_directory(STATIC_DIR, "admin.html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     """Serves user photos from the writable data dir (they no longer live inside /static)."""

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Admin Login - Geo-Waste Reporter</title>
+<style>
+  :root { --dk:#1e3a2b; --gr:#4a6b57; --cr:#f6f1e7; --gd:#b8963e; --tx:#24302a; --line:#ddd5c2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--cr); color:var(--tx); }
+  .hidden { display:none !important; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:#fff; padding:8px 14px; color:var(--tx); }
+  button.primary { background:var(--dk); color:#fff; border-color:var(--dk); }
+  button.danger { background:#fff; color:#b91c1c; border-color:#fca5a5; }
+  button:disabled { opacity:.6; cursor:wait; }
+  input, select, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--tx); width:100%; }
+  /* login */
+  #login { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:28px; width:100%; max-width:380px; box-shadow:0 6px 24px rgba(0,0,0,.06); }
+  .card h1 { margin:0 0 4px; font-family:Georgia,serif; color:var(--dk); font-size:24px; }
+  .card p { margin:0 0 18px; color:var(--gr); font-size:14px; }
+  .err { color:#b91c1c; font-size:14px; min-height:20px; margin:8px 0; }
+  .back { display:block; margin-top:14px; font-size:13px; color:var(--gr); text-align:center; }
+  /* dashboard */
+  header { background:var(--dk); color:#fff; padding:14px 20px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+  header h2 { margin:0; font-family:Georgia,serif; font-size:20px; }
+  header a { color:#d9e3db; font-size:14px; margin-right:12px; }
+  main { padding:18px 20px 40px; max-width:1200px; margin:0 auto; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:16px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .stat b { display:block; font-size:22px; color:var(--dk); }
+  .stat span { font-size:12px; color:var(--gr); text-transform:uppercase; letter-spacing:.05em; }
+  .tools { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+  .tools > * { width:auto; flex:0 1 auto; }
+  .tools input { flex:1 1 200px; }
+  .tablewrap { overflow-x:auto; background:#fff; border:1px solid var(--line); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; min-width:820px; font-size:14px; }
+  th { text-align:left; background:#efe9d8; padding:10px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--gr); }
+  td { padding:10px; border-top:1px solid var(--line); vertical-align:middle; }
+  .thumb { width:48px; height:48px; object-fit:cover; border-radius:6px; background:#eee; }
+  .pill { display:inline-block; padding:2px 10px; border-radius:99px; font-size:12px; font-weight:600; }
+  .s-Reported { background:#fee2e2; color:#991b1b; } .s-InProgress { background:#ffedd5; color:#9a3412; } .s-Cleared { background:#dcfce7; color:#166534; }
+  .p-Critical { background:#ef4444; color:#fff; } .p-High { background:#f97316; color:#fff; } .p-Medium { background:#eab308; color:#222; } .p-Low { background:#22c55e; color:#fff; }
+  .muted { color:var(--gr); font-size:12px; }
+  /* modal */
+  #modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #modal .card { max-width:440px; }
+  label { display:block; font-size:13px; font-weight:600; margin:12px 0 4px; }
+  .row { display:flex; gap:10px; margin-top:16px; justify-content:flex-end; }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--dk); color:#fff; padding:10px 18px; border-radius:8px; font-size:14px; z-index:50; }
+</style>
+</head>
+<body>
+
+<section id="login">
+  <div class="card">
+    <h1>Admin Login</h1>
+    <p>Geo-Waste Reporter - municipal access only.</p>
+    <label for="token">Admin token</label>
+    <input id="token" type="password" autocomplete="current-password" placeholder="Enter admin token">
+    <div class="err" id="loginErr" role="alert"></div>
+    <button class="primary" id="loginBtn" style="width:100%">Log in</button>
+    <a class="back" href="/">&larr; Back to public site</a>
+  </div>
+</section>
+
+<section id="app" class="hidden">
+  <header>
+    <h2>Municipal Admin Dashboard</h2>
+    <div><a href="/">Public site</a><button id="logoutBtn">Log out</button></div>
+  </header>
+  <main>
+    <div class="stats" id="stats"></div>
+    <div class="tools">
+      <select id="statusFilter"><option value="">All statuses</option><option>Reported</option><option>In Progress</option><option>Cleared</option></select>
+      <input id="search" type="search" placeholder="Search title, ward, address...">
+      <button id="refreshBtn">Refresh</button>
+      <button id="seedBtn" class="danger">Reset demo data</button>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th></th><th>ID</th><th>Report</th><th>Ward</th><th>Priority</th><th>Status</th><th>Votes</th><th>Reported</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="9" class="muted">Loading...</td></tr></tbody>
+    </table></div>
+  </main>
+</section>
+
+<div id="modal" class="hidden">
+  <div class="card">
+    <h1 style="font-size:20px">Update report</h1>
+    <p id="mTitle"></p>
+    <label for="mStatus">New status</label>
+    <select id="mStatus"><option>Reported</option><option>In Progress</option><option>Cleared</option></select>
+    <label for="mNotes">Notes (optional)</label>
+    <textarea id="mNotes" rows="3" maxlength="1000"></textarea>
+    <label for="mPhoto">After-cleanup photo (proof, optional)</label>
+    <input id="mPhoto" type="file" accept="image/*">
+    <div class="err" id="mErr" role="alert"></div>
+    <div class="row"><button id="mCancel">Cancel</button><button class="primary" id="mSave">Save</button></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const KEY = 'gwr_admin_token';
+  const $ = id => document.getElementById(id);
+  let reports = [], editing = null;
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const token = () => sessionStorage.getItem(KEY) || '';
+  function toast(msg) { const t = document.createElement('div'); t.id = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+
+  function showLogin(msg) {
+    sessionStorage.removeItem(KEY);
+    $('app').classList.add('hidden'); $('modal').classList.add('hidden'); $('login').classList.remove('hidden');
+    $('loginErr').textContent = msg || ''; $('token').value = ''; $('token').focus();
+  }
+  function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); loadReports(); }
+
+  async function api(path, opts) {
+    opts = opts || {}; opts.headers = Object.assign({ 'X-Admin-Token': token() }, opts.headers || {});
+    const res = await fetch(path, opts);
+    if (res.status === 401) { showLogin('Session expired or wrong token. Please log in again.'); throw new Error('unauthorized'); }
+    return res;
+  }
+
+  async function login() {
+    const t = $('token').value.trim();
+    if (!t) { $('loginErr').textContent = 'Please enter the admin token.'; return; }
+    $('loginBtn').disabled = true; $('loginErr').textContent = '';
+    try {
+      const res = await fetch('/api/admin/check', { method: 'POST', headers: { 'X-Admin-Token': t } });
+      if (res.ok) { sessionStorage.setItem(KEY, t); showApp(); }
+      else if (res.status === 401) $('loginErr').textContent = 'Wrong admin token. Admin access denied.';
+      else if (res.status === 503) $('loginErr').textContent = 'Admin is disabled: ADMIN_TOKEN is not set on the server.';
+      else $('loginErr').textContent = 'Server error (' + res.status + '). Try again.';
+    } catch (e) { $('loginErr').textContent = 'Could not reach the server.'; }
+    $('loginBtn').disabled = false;
+  }
+
+  async function loadReports() {
+    $('rows').innerHTML = '<tr><td colspan="9" class="muted">Loading...</td></tr>';
+    try {
+      const res = await fetch('/api/reports'); const data = await res.json();
+      reports = data.reports || []; render();
+    } catch (e) { $('rows').innerHTML = '<tr><td colspan="9" class="muted">Could not load reports.</td></tr>'; }
+  }
+
+  function render() {
+    const count = s => reports.filter(r => r.status === s).length;
+    $('stats').innerHTML = [['Total', reports.length], ['Reported', count('Reported')], ['In Progress', count('In Progress')], ['Cleared', count('Cleared')]]
+      .map(x => '<div class="stat"><b>' + x[1] + '</b><span>' + x[0] + '</span></div>').join('');
+    const sf = $('statusFilter').value, q = $('search').value.trim().toLowerCase();
+    const list = reports.filter(r => (!sf || r.status === sf) &&
+      (!q || [r.title, r.ward_name, r.address, r.category, r.id].join(' ').toLowerCase().includes(q)))
+      .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+    if (!list.length) { $('rows').innerHTML = '<tr><td colspan="9" class="muted">No reports match.</td></tr>'; return; }
+    $('rows').innerHTML = list.map(r => {
+      const img = r.image_url ? '<img class="thumb" src="' + esc(r.image_url) + '" alt="" onerror="this.style.visibility=\'hidden\'">' : '';
+      const d = r.reported_at ? new Date(r.reported_at).toLocaleDateString() : '';
+      return '<tr><td>' + img + '</td><td>' + esc(r.id) + '</td><td><b>' + esc(r.title) + '</b><div class="muted">' + esc(r.category) + '</div></td>' +
+        '<td>' + esc(r.ward_name) + '</td><td><span class="pill p-' + esc(r.priority_level) + '">' + esc(r.priority_level) + ' ' + esc(r.priority_score) + '</span></td>' +
+        '<td><span class="pill s-' + esc(String(r.status).replace(/\s/g, '')) + '">' + esc(r.status) + '</span></td><td>' + esc(r.upvotes || 0) + '</td><td>' + esc(d) + '</td>' +
+        '<td><button data-id="' + esc(r.id) + '">Update</button></td></tr>';
+    }).join('');
+  }
+
+  function openModal(id) {
+    editing = reports.find(r => String(r.id) === String(id)); if (!editing) return;
+    $('mTitle').textContent = '#' + editing.id + ' - ' + (editing.title || '');
+    $('mStatus').value = editing.status; $('mNotes').value = ''; $('mPhoto').value = ''; $('mErr').textContent = '';
+    $('modal').classList.remove('hidden');
+  }
+
+  async function save() {
+    const fd = new FormData(); fd.append('status', $('mStatus').value);
+    if ($('mNotes').value.trim()) fd.append('notes', $('mNotes').value.trim());
+    const f = $('mPhoto').files[0]; if (f) fd.append('after_photo', f);
+    $('mSave').disabled = true; $('mErr').textContent = '';
+    try {
+      const res = await api('/api/reports/' + encodeURIComponent(editing.id) + '/status', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) { $('modal').classList.add('hidden'); toast('Status updated'); loadReports(); }
+      else $('mErr').textContent = data.error || 'Update failed (' + res.status + ')';
+    } catch (e) { if (e.message !== 'unauthorized') $('mErr').textContent = 'Could not reach the server.'; }
+    $('mSave').disabled = false;
+  }
+
+  async function reseed() {
+    if (!confirm('This DELETES all reports and reloads demo data. Continue?')) return;
+    try { const res = await api('/api/seed', { method: 'POST' }); toast(res.ok ? 'Demo data reloaded' : 'Reset failed'); loadReports(); }
+    catch (e) { /* handled in api() */ }
+  }
+
+  $('loginBtn').addEventListener('click', login);
+  $('token').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  $('logoutBtn').addEventListener('click', () => showLogin('You have been logged out.'));
+  $('refreshBtn').addEventListener('click', loadReports);
+  $('seedBtn').addEventListener('click', reseed);
+  $('statusFilter').addEventListener('change', render);
+  $('search').addEventListener('input', render);
+  $('rows').addEventListener('click', e => { const b = e.target.closest('button[data-id]'); if (b) openModal(b.dataset.id); });
+  $('mCancel').addEventListener('click', () => $('modal').classList.add('hidden'));
+  $('mSave').addEventListener('click', save);
+
+  // Re-verify any saved token with the server on load; otherwise show the login box.
+  (async function init() {
+    if (!token()) return showLogin();
+    try {
+      const res = await fetch('/api/admin/check', { method: 'POST', headers: { 'X-Admin-Token': token() } });
+      if (res.ok) showApp(); else showLogin();
+    } catch (e) { showLogin(); }
+  })();
+})();
+</script>
+</body>
+</html>
