@@ -14,6 +14,7 @@ Configuration (environment variables):
 
 import os
 import io
+import re
 import csv
 import json
 import math
@@ -416,6 +417,14 @@ def submit_report():
     geo = lookup_ward_and_address(lat, lon, wards_geojson_path=WARDS_GEOJSON)
     address = clean_text(data.get("address"), "address", 300) or geo["address"]
 
+    # Only 10 wards are mapped. For a place far outside them, file the report under the real locality
+    # (sent by the browser from OpenStreetMap, e.g. "Kumbalgodu") instead of a ward many km away.
+    ward_id, ward_name = geo["ward_id"], geo["ward_name"]
+    if geo.get("outside_mapped_wards"):
+        locality = re.sub(r"[<>\"'`\\]", "", str(data.get("locality") or "")).strip()[:60]
+        slug = re.sub(r"[^A-Z0-9]+", "-", locality.upper()).strip("-")[:30] or "OTHER"
+        ward_id, ward_name = f"OUT-{slug}", (locality or "Outside mapped wards")
+
     receptor = priority_res.get("closest_receptor")
     report_payload = {
         "title": title or f"{category} on Roadside",
@@ -427,8 +436,8 @@ def submit_report():
         "latitude": lat,
         "longitude": lon,
         "address": address,
-        "ward_id": geo["ward_id"],
-        "ward_name": geo["ward_name"],
+        "ward_id": ward_id,
+        "ward_name": ward_name,
         "status": "Reported",
         "image_url": image_url,
         "after_image_url": None,

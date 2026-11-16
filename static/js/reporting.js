@@ -253,6 +253,7 @@ async function performReverseGeocode(lat, lon) {
 
   let resolvedAddress = '';
   let resolvedWard = '';
+  if (myRequest === geocodeRequestId) ReportingState.locality = '';
 
   // 1. Try Nominatim OpenStreetMap Reverse Geocoding API
   try {
@@ -273,6 +274,9 @@ async function performReverseGeocode(lat, lon) {
         const road = a.road || a.pedestrian || a.suburb || a.neighbourhood || '';
         const suburb = a.suburb || a.city_district || a.neighbourhood || '';
         const city = a.city || a.town || 'Bengaluru';
+        if (myRequest === geocodeRequestId) {
+          ReportingState.locality = a.suburb || a.neighbourhood || a.village || a.hamlet || a.city_district || '';
+        }
         const postcode = a.postcode ? ` - ${a.postcode}` : '';
 
         if (road || suburb) {
@@ -561,6 +565,7 @@ function setupReportForm() {
     formData.append('severity', severity);
     formData.append('ward_name', wardName);
     formData.append('address', address);
+    formData.append('locality', ReportingState.locality || '');
     formData.append('latitude', ReportingState.currentLat);
     const cr = ReportingState.clientReceptors;
     if (cr && cr.key === coordKey(ReportingState.currentLat, ReportingState.currentLon)) {
