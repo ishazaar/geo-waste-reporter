@@ -147,8 +147,10 @@ def _build_result(category: str, confidence: float, severity: int, volume: str, 
 
 
 # Tried in order if GEMINI_MODEL is unset or its name has been retired (Google answers HTTP 404).
-GEMINI_MODEL_FALLBACKS = ("gemini-3.5-flash", "gemini-flash-latest", "gemini-3.6-flash", "gemini-3.1-flash-lite")
+GEMINI_MODEL_FALLBACKS = ("gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.6-flash")
 _WORKING_MODEL: Dict[str, str] = {}
+PER_TRY_TIMEOUT_S = 12      # seconds to wait for one model before trying the next one
+TOTAL_BUDGET_S = 30         # give up on Gemini after this long overall (keeps the app responsive)
 
 
 def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str, Any]:
@@ -181,7 +183,7 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
         )
         for attempt in range(2):  # one retry for transient 429/5xx
             try:
-                with urllib.request.urlopen(req, timeout=25) as response:
+                with urllib.request.urlopen(req, timeout=PER_TRY_TIMEOUT_S) as response:
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 body = ""
@@ -202,7 +204,10 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
         if m and m not in candidates:
             candidates.append(m)
     res_data, model, last_err = None, None, None
+    started = time.time()
     for m in candidates:
+        if time.time() - started > TOTAL_BUDGET_S:
+            break
         try:
             res_data, model = _post(m), m
             _WORKING_MODEL["name"] = m
@@ -212,8 +217,13 @@ def _call_gemini_vision(image_bytes: bytes, mime: str, api_key: str) -> Dict[str
             if e.code in (404, 400):   # unknown / retired model name -> try the next one
                 continue
             raise
+        except (TimeoutError, OSError) as e:   # slow or unreachable model -> try the next one
+            last_err = e
+            print(f"[Classifier] {m} timed out / unreachable ({type(e).__name__}); trying next model")
+            _WORKING_MODEL.pop("name", None)
+            continue
     if res_data is None:
-        raise last_err
+        raise last_err or TimeoutError("Gemini did not answer in time")
     parts = res_data["candidates"][0]["content"]["parts"]
     text = next((p_["text"] for p_ in parts if p_.get("text") and not p_.get("thought")), None)
     if text is None:
