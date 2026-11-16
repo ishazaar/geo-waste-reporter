@@ -368,26 +368,6 @@ function dismissDuplicateAlert() {
   if (alertBox) alertBox.classList.add('hidden');
 }
 
-// Shrinks big phone photos (often 3-8 MB) to ~1024 px JPEG so AI analysis is fast and the upload fits server limits.
-async function shrinkImage(file, maxDim = 1024, quality = 0.82) {
-  try {
-    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
-    if (scale === 1 && file.size < 600 * 1024) return file;          // already small
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
-    if (!blob || blob.size >= file.size) return file;
-    return new File([blob], (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
-  } catch (e) {
-    console.warn('Image shrink skipped:', e);
-    return file;
-  }
-}
-
 // Photo Upload & AI Vision Setup
 function setupPhotoUpload() {
   const fileInput = document.getElementById('photo-upload-input');
@@ -403,7 +383,6 @@ function setupPhotoUpload() {
       return;
     }
 
-    file = await shrinkImage(file);
     ReportingState.selectedFile = file;
 
     const reader = new FileReader();
