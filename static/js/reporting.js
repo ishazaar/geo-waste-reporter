@@ -391,6 +391,7 @@ function setupPhotoUpload() {
     };
     reader.readAsDataURL(file);
 
+    await runAIClassification(file);
   };
 
   fileInput.addEventListener('change', (e) => {
@@ -446,6 +447,18 @@ async function runAIClassification(file) {
 
     if (data.success && data.analysis) {
       const a = data.analysis;
+
+      // No real image analysis happened and no keywords matched: don't pretend. Ask the person to choose.
+      if (a.needs_manual_category) {
+        ReportingState.aiResult = null;
+        if (aiResultsBox) {
+          aiResultsBox.innerHTML = `<div class="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 font-semibold">
+            AI photo analysis is not enabled on the server, so this photo was not analysed. Please choose the waste category below.
+            Priority still uses the location.</div>`;
+        }
+        return;
+      }
+
       ReportingState.aiResult = a;
 
       const catSelect = document.getElementById('report-category');
@@ -459,6 +472,7 @@ async function runAIClassification(file) {
       }
 
       renderAIAnalysisCard(a);
+      schedulePriorityPreview();   // AI severity feeds the location-priority score
       showToast(`${a.is_demo_heuristic ? 'Keyword guess (not image analysis)' : 'AI classified'}: ${a.category} (${a.confidence_percentage}% confidence)`, 'success');
     }
   } catch (err) {

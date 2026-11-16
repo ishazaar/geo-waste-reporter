@@ -359,12 +359,26 @@ def submit_report():
 
     # Photo: verified by content, stored under a server-generated name. Client-supplied image URLs are ignored.
     image_url = "/static/images/placeholder_dump.svg"
+    ai_classification = None
     photo_bytes = None
     if photo_file and photo_file.filename:
         photo_bytes, mime = read_image(photo_file)
         image_url = save_image(photo_bytes, mime, "report")
+        ai_classification = classify_waste_image(
+            image_bytes=photo_bytes, filename=photo_file.filename, description=description
+        )
 
+    ai_materials, ai_confidence = [], None
     est_vol = clean_text(data.get("estimated_volume"), "estimated_volume", 40) or None
+
+    if ai_classification:
+        if not category or category == "Auto-Detect (AI)":
+            category = ai_classification["category"]
+            severity = ai_classification["severity"]
+        ai_materials = ai_classification.get("detected_materials", [])
+        ai_confidence = ai_classification.get("confidence")
+        est_vol = ai_classification.get("estimated_volume_m3", est_vol)
+
     if not category or category == "Auto-Detect (AI)":
         category = "Mixed Municipal Solid Waste"
 
@@ -394,8 +408,8 @@ def submit_report():
         "image_url": image_url,
         "after_image_url": None,
         "upvotes": 0,
-        "ai_confidence": None,
-        "ai_materials": [],
+        "ai_confidence": ai_confidence,
+        "ai_materials": ai_materials,
         "estimated_volume": est_vol,
         "closest_receptor_name": receptor["name"] if receptor else None,
         "closest_receptor_dist": receptor["distance_m"] if receptor else None,
@@ -406,7 +420,7 @@ def submit_report():
     created = create_report(report_payload)
     return jsonify({
         "success": True, "message": "Report submitted successfully",
-        "report": created
+        "report": created, "ai_analysis": ai_classification
     }), 201
 
 
