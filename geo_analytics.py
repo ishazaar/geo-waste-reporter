@@ -334,7 +334,7 @@ def receptor_from_report(report: dict):
 
 
 def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int = 0, days_open: float = 0.0,
-                             receptors=None, receptor=None) -> dict:
+                             receptors=None, receptor=None, category: str = None) -> dict:
     """
     Location-driven priority score (0 - 100).
       1. Waste severity (1-5): 10 to 50 pts
@@ -343,6 +343,7 @@ def calculate_priority_score(severity: int, lat: float, lon: float, upvotes: int
     URGENT RULE: a dump within 150 m of a school or hospital is always at least CRITICAL; within 350 m at
     least HIGH, no matter how small the dump looks.
     `receptors` = list from nearby_receptors(); `receptor` = one stored receptor; neither = built-in list.
+    `category` is accepted (and currently unused) so callers that pass it, e.g. seed_data.py, keep working.
     """
     severity = max(1, min(5, int(severity or 3)))
     base_score = severity * 10
