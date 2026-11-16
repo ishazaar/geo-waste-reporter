@@ -132,6 +132,48 @@ def clean_text(value, field, max_len, required=False):
     return text
 
 
+
+# --- Locality for places outside the 10 mapped wards -----------------------------------------------
+_SYNTHETIC_ADDR = re.compile(r"^(Adjacent to|Near |Service Road|-?\d+\.\d+\s*,)", re.I)
+
+
+def _locality_from_address(addr):
+    """Pulls the area name out of the address the browser built from OpenStreetMap ('road, area, city - PIN')."""
+    t = re.sub(r"\s+-\s*\d{5,6}\s*$", "", (addr or "").strip())
+    if not t or _SYNTHETIC_ADDR.match(t):
+        return ""
+    parts = [p.strip() for p in t.split(",") if p.strip()]
+    if len(parts) >= 3:
+        return parts[-2]          # [road, AREA, city]
+    return parts[0] if parts else ""
+
+
+def _nominatim_locality(lat, lon):
+    """Last resort: ask OpenStreetMap's reverse geocoder from the server (short timeout, never raises)."""
+    try:
+        import urllib.request
+        url = (f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=16&addressdetails=1"
+               f"&lat={lat}&lon={lon}")
+        req = urllib.request.Request(url, headers={"User-Agent": "geo-waste-reporter/1.0 (civic demo)",
+                                                   "Accept-Language": "en"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            a = (json.loads(resp.read().decode("utf-8")) or {}).get("address", {})
+        for k in ("suburb", "neighbourhood", "village", "hamlet", "quarter", "locality", "city_district", "town"):
+            if a.get(k):
+                return str(a[k])
+    except Exception:
+        pass
+    return ""
+
+
+def resolve_locality(lat, lon, client_locality, address):
+    for candidate in (client_locality, _locality_from_address(address)):
+        c = re.sub(r"[<>\"'`\\]", "", str(candidate or "")).strip()[:60]
+        if c:
+            return c
+    return re.sub(r"[<>\"'`\\]", "", _nominatim_locality(lat, lon)).strip()[:60]
+
+
 def json_body():
     data = request.get_json(silent=True)
     return data if isinstance(data, dict) else {}
@@ -421,7 +463,7 @@ def submit_report():
     # (sent by the browser from OpenStreetMap, e.g. "Kumbalgodu") instead of a ward many km away.
     ward_id, ward_name = geo["ward_id"], geo["ward_name"]
     if geo.get("outside_mapped_wards"):
-        locality = re.sub(r"[<>\"'`\\]", "", str(data.get("locality") or "")).strip()[:60]
+        locality = resolve_locality(lat, lon, data.get("locality"), data.get("address"))
         slug = re.sub(r"[^A-Z0-9]+", "-", locality.upper()).strip("-")[:30] or "OTHER"
         ward_id, ward_name = f"OUT-{slug}", (locality or "Outside mapped wards")
 

@@ -275,7 +275,7 @@ async function performReverseGeocode(lat, lon) {
         const suburb = a.suburb || a.city_district || a.neighbourhood || '';
         const city = a.city || a.town || 'Bengaluru';
         if (myRequest === geocodeRequestId) {
-          ReportingState.locality = a.suburb || a.neighbourhood || a.village || a.hamlet || a.city_district || '';
+          ReportingState.locality = a.suburb || a.neighbourhood || a.village || a.hamlet || a.quarter || a.locality || a.city_district || a.town || '';
         }
         const postcode = a.postcode ? ` - ${a.postcode}` : '';
 
