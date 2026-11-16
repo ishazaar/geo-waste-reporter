@@ -207,7 +207,10 @@
   // Keep the table current: refresh every 20 s while the dashboard is open and no update window is showing.
   setInterval(function () {
     if (!$('app').classList.contains('hidden') && $('modal').classList.contains('hidden') && !document.hidden) loadReports();
-  }, 20000);
+  }, 10000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && !$('app').classList.contains('hidden')) loadReports();
+  });
 
   // Re-verify any saved token with the server on load; otherwise show the login box.
   (async function init() {
