@@ -87,12 +87,14 @@ OVERPASS_MIRRORS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
 ]
 LOOKUP_RADIUS_M = 700          # receptors further than this add no priority points
 _QUERY_RADIUS_M = 900          # cached query is a little wider than the lookup radius
 _OSM_TTL_S = 6 * 3600
-_OSM_FAIL_TTL_S = 90
+_OSM_FAIL_TTL_S = 30
 _OSM_CACHE = {}                # (rounded lat, rounded lon) -> (timestamp, elements or None)
+_UA = "geo-waste-reporter/1.0 (student project)"
 
 PEOPLE_TYPES = ("school", "hospital")   # places where people are most vulnerable -> urgent clean-up
 TYPE_LABEL = {"school": "School", "hospital": "Hospital / clinic", "water_body": "Water body"}
@@ -112,7 +114,7 @@ def _classify_osm(tags: dict):
 def _overpass_query(lat: float, lon: float) -> str:
     r = _QUERY_RADIUS_M
     return (
-        "[out:json][timeout:10];("
+        "[out:json][timeout:8];("
         f'nwr["amenity"~"^(school|kindergarten|college|university|hospital|clinic)$"](around:{r},{lat},{lon});'
         f'nwr["healthcare"~"^(hospital|clinic)$"](around:{r},{lat},{lon});'
         f'nwr["natural"="water"]["name"](around:{r},{lat},{lon});'
@@ -120,15 +122,65 @@ def _overpass_query(lat: float, lon: float) -> str:
     )
 
 
-def _query_mirror(url: str, query: str, timeout: float):
-    data = urllib.parse.urlencode({"data": query}).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers={"User-Agent": "geo-waste-reporter/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8")).get("elements", [])
+def _query_mirror(url: str, query: str, timeout: float, diag: dict = None):
+    t0 = time.time()
+    try:
+        data = urllib.parse.urlencode({"data": query}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            els = json.loads(resp.read().decode("utf-8")).get("elements", [])
+        if diag is not None:
+            diag[url] = f"ok: {len(els)} places in {round((time.time() - t0) * 1000)} ms"
+        return els
+    except Exception as e:
+        if diag is not None:
+            diag[url] = f"FAILED after {round((time.time() - t0) * 1000)} ms: {type(e).__name__}: {str(e)[:100]}"
+        raise
 
 
-def fetch_osm_elements(lat: float, lon: float, overall_timeout: float = 6.0):
-    """Races all Overpass mirrors in parallel and returns the first good answer (or None)."""
+def _nominatim_amenities(lat: float, lon: float, diag: dict = None, timeout: float = 4.0):
+    """
+    Backup source (separate servers from Overpass): asks Nominatim for schools / hospitals / clinics /
+    colleges in a ~1 km box around the pin. Returns Overpass-style elements, or raises if every call failed.
+    """
+    dlat, dlon = 0.009, 0.0095
+    viewbox = f"{lon - dlon},{lat + dlat},{lon + dlon},{lat - dlat}"
+
+    def one(term):
+        qs = urllib.parse.urlencode({"q": term, "format": "jsonv2", "limit": 30, "bounded": 1,
+                                     "viewbox": viewbox, "countrycodes": "in"})
+        req = urllib.request.Request("https://nominatim.openstreetmap.org/search?" + qs,
+                                     headers={"User-Agent": _UA, "Accept-Language": "en"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return term, json.loads(resp.read().decode("utf-8"))
+
+    elements, ok = [], 0
+    t0 = time.time()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = [pool.submit(one, t) for t in ("school", "hospital", "clinic", "college")]
+        for f in futs:
+            try:
+                term, items = f.result(timeout=timeout + 1)
+                ok += 1
+                for it in items:
+                    elements.append({"lat": float(it["lat"]), "lon": float(it["lon"]),
+                                     "tags": {"amenity": it.get("type") or term,
+                                              "name": it.get("name") or (it.get("display_name", "").split(",")[0])}})
+            except Exception as e:
+                if diag is not None:
+                    diag["nominatim:" + str(f)[-12:]] = f"FAILED: {type(e).__name__}: {str(e)[:80]}"
+    if diag is not None:
+        diag["nominatim (backup)"] = f"{ok}/4 queries ok, {len(elements)} places in {round((time.time() - t0) * 1000)} ms"
+    if ok == 0:
+        raise RuntimeError("Nominatim backup failed")
+    return elements
+
+
+def fetch_osm_elements(lat: float, lon: float, overall_timeout: float = 5.0):
+    """
+    Races all Overpass mirrors; if none answers in time, uses the Nominatim backup. Returns a list of
+    Overpass-style elements, or None when every source failed. Results are cached.
+    """
     key = (round(lat, 3), round(lon, 3))
     now = time.time()
     hit = _OSM_CACHE.get(key)
@@ -139,9 +191,10 @@ def fetch_osm_elements(lat: float, lon: float, overall_timeout: float = 6.0):
 
     query = _overpass_query(key[0], key[1])
     elements = None
-    pool = ThreadPoolExecutor(max_workers=len(OVERPASS_MIRRORS))
+    pool = ThreadPoolExecutor(max_workers=len(OVERPASS_MIRRORS) + 1)
     try:
-        futures = [pool.submit(_query_mirror, m, query, overall_timeout) for m in OVERPASS_MIRRORS]
+        futures = [pool.submit(_query_mirror, m, query, overall_timeout + 1) for m in OVERPASS_MIRRORS]
+        backup = pool.submit(_nominatim_amenities, key[0], key[1])
         try:
             for fut in as_completed(futures, timeout=overall_timeout):
                 try:
@@ -151,10 +204,33 @@ def fetch_osm_elements(lat: float, lon: float, overall_timeout: float = 6.0):
                     continue
         except Exception:
             pass
+        if elements is None:   # Overpass gave nothing in time -> use the backup source
+            try:
+                elements = backup.result(timeout=4.5)
+            except Exception:
+                elements = None
     finally:
         pool.shutdown(wait=False)
     _OSM_CACHE[key] = (now, elements)
     return elements
+
+
+def diagnose_osm(lat: float, lon: float) -> dict:
+    """Setup check: tries every source once and reports what happened (used by /api/osm-test)."""
+    diag = {}
+    query = _overpass_query(round(lat, 3), round(lon, 3))
+    with ThreadPoolExecutor(max_workers=len(OVERPASS_MIRRORS)) as pool:
+        futs = [pool.submit(_query_mirror, m, query, 9.0, diag) for m in OVERPASS_MIRRORS]
+        for f in futs:
+            try:
+                f.result(timeout=10)
+            except Exception:
+                pass
+    try:
+        _nominatim_amenities(lat, lon, diag)
+    except Exception:
+        pass
+    return diag
 
 
 def nearby_receptors(lat: float, lon: float, radius_m: float = LOOKUP_RADIUS_M):
@@ -194,6 +270,44 @@ def nearby_receptors(lat: float, lon: float, radius_m: float = LOOKUP_RADIUS_M):
 
     found.sort(key=lambda x: x["distance_m"])
     return found, source
+
+
+def sanitize_client_receptors(raw, lat: float, lon: float, max_items: int = 40, max_dist_m: float = 1200.0):
+    """
+    Validates a place list sent by the browser (the browser looks up OpenStreetMap itself when the server
+    cannot). Types are whitelisted, text is trimmed, and distances are recomputed here from the coordinates.
+    Returns a clean list, or None if the input is not a list.
+    """
+    if not isinstance(raw, list):
+        return None
+    clean = []
+    for it in raw[:max_items]:
+        try:
+            rtype = it.get("type")
+            if rtype not in TYPE_LABEL:
+                continue
+            rlat, rlon = float(it["lat"]), float(it["lon"])
+            d = haversine_distance(lat, lon, rlat, rlon)
+            if d > max_dist_m:
+                continue
+            name = str(it.get("name") or f"{TYPE_LABEL[rtype]} (unnamed)")[:120]
+            clean.append({"name": name, "type": rtype, "lat": rlat, "lon": rlon, "distance_m": round(d, 1)})
+        except Exception:
+            continue
+    clean.sort(key=lambda x: x["distance_m"])
+    return clean
+
+
+def merge_with_builtin(receptors: list, lat: float, lon: float, radius_m: float = LOOKUP_RADIUS_M) -> list:
+    """Adds the built-in famous places (lakes etc.) to a list, skipping ones already present by name."""
+    out = [r for r in receptors if r["distance_m"] <= radius_m]
+    names = {r["name"].lower() for r in out}
+    for r in SENSITIVE_RECEPTORS:
+        d = haversine_distance(lat, lon, r["lat"], r["lon"])
+        if d <= radius_m and r["name"].lower() not in names:
+            out.append({**r, "distance_m": round(d, 1)})
+    out.sort(key=lambda x: x["distance_m"])
+    return out
 
 
 def _proximity_points(dist: float) -> int:

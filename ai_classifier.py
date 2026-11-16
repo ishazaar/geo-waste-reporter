@@ -107,15 +107,19 @@ def classify_waste_image(
     supplied; otherwise (or on any Gemini error) falls back to the clearly-labelled keyword heuristic.
     """
     api_key = os.environ.get("GEMINI_API_KEY")
+    reason = None
     if api_key and image_bytes:
         mime = sniff_mime(image_bytes)
         if mime:
             try:
                 return _call_gemini_vision(image_bytes, mime, api_key)
             except Exception as e:  # never log the key / URL
-                print(f"[Classifier] Gemini call failed, using keyword fallback: {type(e).__name__}: {e}")
+                reason = f"{type(e).__name__}: {str(e)[:140]}"
+                print(f"[Classifier] Gemini call failed, using keyword fallback: {reason}")
+        else:
+            reason = "unsupported image type"
 
-    return _local_keyword_inference(filename, description)
+    return _local_keyword_inference(filename, description, reason)
 
 
 def _build_result(category: str, confidence: float, severity: int, volume: str, weight: int,
@@ -243,7 +247,7 @@ def _count_hits(text: str, keywords) -> int:
     return n
 
 
-def _local_keyword_inference(filename: str, description: str) -> Dict[str, Any]:
+def _local_keyword_inference(filename: str, description: str, reason: Optional[str] = None) -> Dict[str, Any]:
     """
     OFFLINE DEMO FALLBACK. Counts keyword hits in filename + description. It does not analyse the image,
     so confidence is deliberately low and the result is flagged is_demo_heuristic=True.
@@ -255,14 +259,15 @@ def _local_keyword_inference(filename: str, description: str) -> Dict[str, Any]:
     best, n = max(hits.items(), key=lambda kv: kv[1])
     needs_manual = False
 
+    why = (f"The AI photo analysis failed ({reason})" if reason
+           else "AI photo analysis is not enabled on the server (no GEMINI_API_KEY)")
     if n == 0:
         best, confidence = "Mixed Municipal Solid Waste", 0.30
         needs_manual = True
-        note = ("The photo was NOT analysed (no GEMINI_API_KEY is configured on the server) and no keywords were found "
-                "in the description. Please choose the waste category yourself.")
+        note = f"{why}, so this photo was not analysed and no keywords were found. Please choose the waste category yourself."
     else:
         confidence = min(0.70, 0.45 + 0.08 * n)
-        note = "Guessed from the words in your description/filename, not from the photo."
+        note = f"{why}. Guessed from the words in your description/filename, not from the photo."
 
     meta = CATEGORY_KNOWLEDGE[best]
     vol, wt = TYPICAL_SIZE[best]

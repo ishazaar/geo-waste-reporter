@@ -40,7 +40,8 @@ from database import (
 from geo_analytics import (
     haversine_distance, calculate_priority_score, check_for_duplicate,
     run_dbscan_clustering, optimize_cleanup_route, SENSITIVE_RECEPTORS,
-    nearby_receptors, receptor_from_report, find_repeat_dump_sites,
+    nearby_receptors, receptor_from_report, find_repeat_dump_sites, diagnose_osm,
+    sanitize_client_receptors, merge_with_builtin,
     MUNICIPAL_DEPOTS, lookup_ward_and_address
 )
 from ai_classifier import classify_waste_image, sniff_mime, CATEGORIES
@@ -282,13 +283,28 @@ def reverse_geocode_endpoint():
     return jsonify({"success": True, **geo_info})
 
 
-@app.route("/api/priority-preview")
+@app.route("/api/priority-preview", methods=["GET", "POST"])
 def priority_preview():
-    """Live priority for a pin: finds nearby schools/hospitals/water bodies and scores the spot."""
-    lat = parse_float(request.args.get("lat"), "latitude", -90, 90)
-    lon = parse_float(request.args.get("lon"), "longitude", -180, 180)
-    severity = parse_int(request.args.get("severity"), "severity", 1, 5, default=3)
-    receptors, source = nearby_receptors(lat, lon)
+    """
+    Live priority for a pin. GET: the server looks up nearby schools/hospitals/lakes itself.
+    POST: the browser sends the places it found (used when the server cannot reach OpenStreetMap).
+    """
+    client_list = None
+    if request.method == "POST":
+        body = json_body()
+        lat = parse_float(body.get("lat"), "latitude", -90, 90)
+        lon = parse_float(body.get("lon"), "longitude", -180, 180)
+        severity = parse_int(body.get("severity"), "severity", 1, 5, default=3)
+        client_list = sanitize_client_receptors(body.get("receptors"), lat, lon)
+    else:
+        lat = parse_float(request.args.get("lat"), "latitude", -90, 90)
+        lon = parse_float(request.args.get("lon"), "longitude", -180, 180)
+        severity = parse_int(request.args.get("severity"), "severity", 1, 5, default=3)
+
+    if client_list is not None:
+        receptors, source = merge_with_builtin(client_list, lat, lon), "openstreetmap"
+    else:
+        receptors, source = nearby_receptors(lat, lon)
     calc = calculate_priority_score(severity=severity, lat=lat, lon=lon, receptors=receptors)
     return jsonify({"success": True, "source": source, **calc, "receptors": receptors[:25]})
 
@@ -383,7 +399,16 @@ def submit_report():
         category = "Mixed Municipal Solid Waste"
 
     # Priority is driven by LOCATION: nearby schools / hospitals / water bodies (live OpenStreetMap lookup)
-    receptors, receptor_source = nearby_receptors(lat, lon)
+    client_list = None
+    if data.get("receptors_json"):
+        try:
+            client_list = sanitize_client_receptors(json.loads(data.get("receptors_json")), lat, lon)
+        except Exception:
+            client_list = None
+    if client_list is not None:
+        receptors, receptor_source = merge_with_builtin(client_list, lat, lon), "openstreetmap"
+    else:
+        receptors, receptor_source = nearby_receptors(lat, lon)
     priority_res = calculate_priority_score(severity=severity, lat=lat, lon=lon, upvotes=0, days_open=0.0,
                                             receptors=receptors)
 
@@ -549,6 +574,14 @@ def health():
         "vercel_environment": os.environ.get("VERCEL_ENV"),   # production / preview / development
         "vercel_deployment": (os.environ.get("VERCEL_URL") or "")[:80] or None,
     })
+
+
+@app.route("/api/osm-test", methods=["GET"])
+def osm_test():
+    """Setup check: shows which map-data servers the deployed server can reach (no secrets)."""
+    lat = parse_float(request.args.get("lat"), "latitude", -90, 90, default=12.8629)
+    lon = parse_float(request.args.get("lon"), "longitude", -180, 180, default=77.4383)
+    return jsonify({"ok": True, "lat": lat, "lon": lon, "sources": diagnose_osm(lat, lon)})
 
 
 @app.route("/api/repeat-sites", methods=["GET"])

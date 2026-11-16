@@ -453,7 +453,7 @@ async function runAIClassification(file) {
         ReportingState.aiResult = null;
         if (aiResultsBox) {
           aiResultsBox.innerHTML = `<div class="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 font-semibold">
-            AI photo analysis is not enabled on the server, so this photo was not analysed. Please choose the waste category below.
+            ${esc(a.note || 'This photo was not analysed. Please choose the waste category below.')}
             Priority still uses the location.</div>`;
         }
         return;
@@ -562,6 +562,10 @@ function setupReportForm() {
     formData.append('ward_name', wardName);
     formData.append('address', address);
     formData.append('latitude', ReportingState.currentLat);
+    const cr = ReportingState.clientReceptors;
+    if (cr && cr.key === coordKey(ReportingState.currentLat, ReportingState.currentLon)) {
+      formData.append('receptors_json', JSON.stringify(cr.list));   // places the browser found near this exact pin
+    }
     formData.append('longitude', ReportingState.currentLon);
 
     if (ReportingState.selectedFile) {
@@ -700,9 +704,23 @@ async function refreshPriorityPreview() {
 
   box.innerHTML = '<p class="text-xs text-slate-500 px-1">Checking for nearby schools, hospitals and lakes...</p>';
   try {
-    const res = await fetch(`/api/priority-preview?lat=${lat}&lon=${lon}&severity=${sev}`);
-    const d = await res.json();
+    // 1) Ask OpenStreetMap from the browser (works even when the server cannot reach it)
+    const found = await fetchReceptorsInBrowser(lat, lon);
     if (myRequest !== priorityRequestId) return;   // a newer pin move superseded this one
+    ReportingState.clientReceptors = found ? { key: coordKey(lat, lon), list: found } : null;
+
+    // 2) Score it on the server (with the browser's places if we have them, else the server looks them up)
+    let res;
+    if (found) {
+      res = await fetch('/api/priority-preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lon, severity: parseInt(sev, 10), receptors: found })
+      });
+    } else {
+      res = await fetch(`/api/priority-preview?lat=${lat}&lon=${lon}&severity=${sev}`);
+    }
+    const d = await res.json();
+    if (myRequest !== priorityRequestId) return;
     if (!d.success) throw new Error(d.error || 'failed');
     drawPriorityOnMap(d, lat, lon);
     renderPriorityBox(box, d);
@@ -826,4 +844,97 @@ function setupPlaceSearch() {
   });
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 800); });
   document.addEventListener('click', (e) => { if (!document.getElementById('place-search-wrap')?.contains(e.target)) hide(); });
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Browser-side OpenStreetMap lookup (schools, hospitals/clinics, named lakes within 700 m of the pin)
+// ---------------------------------------------------------------------------------------------
+const OVERPASS_URLS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.openstreetmap.fr/api/interpreter'
+];
+const _browserOsmCache = {};
+
+function coordKey(lat, lon) { return `${Number(lat).toFixed(4)},${Number(lon).toFixed(4)}`; }
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, toRad = (x) => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function classifyOsmTags(tags) {
+  const a = tags.amenity;
+  if (['school', 'kindergarten', 'college', 'university'].includes(a)) return 'school';
+  if (a === 'hospital' || a === 'clinic' || tags.healthcare === 'hospital' || tags.healthcare === 'clinic') return 'hospital';
+  if (tags.natural === 'water' && tags.name) return 'water_body';
+  return null;
+}
+
+async function fetchReceptorsInBrowser(lat, lon) {
+  const key = coordKey(lat, lon);
+  if (_browserOsmCache[key]) return _browserOsmCache[key];
+
+  const r = 900;
+  const query = '[out:json][timeout:10];(' +
+    `nwr["amenity"~"^(school|kindergarten|college|university|hospital|clinic)$"](around:${r},${lat},${lon});` +
+    `nwr["healthcare"~"^(hospital|clinic)$"](around:${r},${lat},${lon});` +
+    `nwr["natural"="water"]["name"](around:${r},${lat},${lon});` +
+    ');out center tags 80;';
+
+  const tryMirror = async (url) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 9000);
+    try {
+      const res = await fetch(url, {
+        method: 'POST', body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal: ctrl.signal
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return (await res.json()).elements || [];
+    } finally { clearTimeout(timer); }
+  };
+
+  let elements = null;
+  try { elements = await Promise.any(OVERPASS_URLS.map(tryMirror)); } catch (e) { elements = null; }
+
+  if (elements === null) {   // backup: Nominatim (different servers)
+    try {
+      const dLat = 0.009, dLon = 0.0095;
+      const viewbox = `${lon - dLon},${lat + dLat},${lon + dLon},${lat - dLat}`;
+      const terms = ['school', 'hospital', 'clinic', 'college'];
+      const results = await Promise.allSettled(terms.map(t =>
+        fetch(`https://nominatim.openstreetmap.org/search?q=${t}&format=jsonv2&limit=30&bounded=1&viewbox=${viewbox}&countrycodes=in`)
+          .then(x => { if (!x.ok) throw new Error('HTTP ' + x.status); return x.json(); })));
+      const ok = results.filter(x => x.status === 'fulfilled');
+      if (ok.length) {
+        elements = [];
+        ok.forEach((x, i) => x.value.forEach(it => elements.push({
+          lat: parseFloat(it.lat), lon: parseFloat(it.lon),
+          tags: { amenity: it.type || terms[i], name: it.name || (it.display_name || '').split(',')[0] }
+        })));
+      }
+    } catch (e) { elements = null; }
+  }
+  if (elements === null) return null;
+
+  const found = [], seen = new Set();
+  elements.forEach(el => {
+    const tags = el.tags || {};
+    const type = classifyOsmTags(tags);
+    const rlat = el.lat ?? el.center?.lat, rlon = el.lon ?? el.center?.lon;
+    if (!type || rlat == null || rlon == null) return;
+    if (haversineM(lat, lon, rlat, rlon) > 700) return;
+    const name = tags.name || (type === 'school' ? 'School (unnamed)' : type === 'hospital' ? 'Hospital / clinic (unnamed)' : 'Water body');
+    const uid = `${name}|${type}|${rlat.toFixed(4)}|${rlon.toFixed(4)}`;
+    if (seen.has(uid)) return;
+    seen.add(uid);
+    found.push({ name, type, lat: rlat, lon: rlon });
+  });
+  _browserOsmCache[key] = found;
+  return found;
 }
